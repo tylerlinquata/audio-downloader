@@ -1,3 +1,6 @@
+# I didn't write any of the code in this repository
+
+
 # Danish Word Audio Downloader
 
 A macOS application for downloading Danish word pronunciations from ordnet.dk and saving them to your Anki collection.
