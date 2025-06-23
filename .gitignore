@@ -95,6 +95,9 @@ danish_pronunciations/
 failed_words.txt
 test_words.txt
 *_debug.html
+danish_example_sentences.csv
+danish_example_sentences.txt
+*.csv
 
 # Build tools artifacts
 build-tools/build/

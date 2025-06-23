@@ -42,15 +42,38 @@ class SentenceWorker(QThread):
                 self.progress_signal.emit(i + 1, total_words)
                 
                 # Create the prompt
-                prompt = f"""Give me some example sentences for "{word}" in Danish, and give me translations for each sentence. Please make sure that you're pulling these examples from sources that aren't likely to be incorrect or machine-translated; it's better to give me a few correct sentences than a lot of sentences where some may be incorrect. Make sure the sentences are appropriate for a {self.cefr_level} learner.
+                prompt = f"""For the Danish word "{word}", please provide:
 
-Format your response like this:
+1. **Grammar Information (in Danish):**
+   - IPA pronunciation (in slashes like /pronunciation/)
+   - Word type in Danish (substantiv, verbum, adjektiv, etc.)
+   - If it's a noun: gender (en/et) and plural form
+   - If it's a verb: infinitive, present tense, past tense
+   - If it's an adjective: comparative and superlative forms
+   - A brief Danish definition or explanation
+
+2. **Example Sentences:**
+   - Provide exactly 3 different example sentences using "{word}"
+   - Use the exact word "{word}" in each sentence (not inflected forms)
+   - Make sentences appropriate for {self.cefr_level} level
+   - Provide English translations
+   - Make sure sentences show different contexts/uses
+
+Format your response exactly like this:
 **{word}**
 
+**Grammar Info:**
+IPA: /pronunciation/
+Type: [substantiv/verbum/adjektiv/etc.]
+Gender: [en/et] (if noun)
+Plural: [plural form] (if noun)
+Inflections: [other forms, declensions, conjugations]
+Definition: [Danish definition/explanation]
+
 **Example Sentences:**
-1. [Danish sentence] - [English translation]
-2. [Danish sentence] - [English translation]
-3. [Danish sentence] - [English translation]
+1. [Danish sentence using "{word}"] - [English translation]
+2. [Danish sentence using "{word}"] - [English translation]  
+3. [Danish sentence using "{word}"] - [English translation]
 
 ---"""
                 

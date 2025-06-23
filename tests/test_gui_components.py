@@ -6,6 +6,7 @@ Unit tests for Danish Audio Downloader GUI components.
 import unittest
 import sys
 import os
+import csv
 from unittest.mock import Mock, patch, MagicMock
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import QSettings
@@ -324,6 +325,103 @@ class TestDanishAudioApp(unittest.TestCase):
             # Check that file was written
             mock_file.assert_called_once_with(test_file_path, 'w', encoding='utf-8')
             mock_file().write.assert_called_once_with(test_results)
+
+    @patch('danish_audio_downloader.gui.app.QFileDialog.getSaveFileName')
+    @patch('danish_audio_downloader.gui.app.QMessageBox.warning')
+    def test_save_sentence_results_csv_no_content(self, mock_warning, mock_save_dialog):
+        """Test saving sentence results as CSV when there's no content."""
+        # Clear results
+        self.main_window.sentence_results.clear()
+        
+        self.main_window.save_sentence_results_csv()
+        
+        # Should show warning and not open save dialog
+        mock_warning.assert_called_once()
+        mock_save_dialog.assert_not_called()
+
+    @patch('danish_audio_downloader.gui.app.QFileDialog.getSaveFileName')
+    def test_save_sentence_results_csv_success(self, mock_save_dialog):
+        """Test successful saving of sentence results as CSV for Anki import."""
+        # Set some properly formatted results with at least 3 sentences per word
+        test_results = """**hund**
+
+**Example Sentences:**
+1. Min hund elsker at lege i parken. - My dog loves to play in the park.
+2. Hunden løb hurtigt efter bolden. - The dog ran quickly after the ball.
+3. Vi har en stor, venlig hund. - We have a big, friendly dog.
+
+---
+
+**kat**
+
+**Example Sentences:**
+1. Katten sover på sofaen. - The cat sleeps on the sofa.
+2. Min kat fanger mus i kælderen. - My cat catches mice in the basement.
+3. Den lille kat miaver højt. - The little cat meows loudly.
+
+---"""
+        self.main_window.sentence_results.setPlainText(test_results)
+        
+        # Mock file dialog
+        test_file_path = "/tmp/test_results.csv"
+        mock_save_dialog.return_value = (test_file_path, "")
+        
+        with patch('builtins.open', unittest.mock.mock_open()) as mock_file:
+            with patch('danish_audio_downloader.gui.app.QMessageBox.information'):
+                with patch('csv.writer') as mock_csv_writer:
+                    mock_writer_instance = mock_csv_writer.return_value
+                    
+                    self.main_window.save_sentence_results_csv()
+                    
+                    # Check that file was opened correctly
+                    mock_file.assert_called_once_with(test_file_path, 'w', newline='', encoding='utf-8')
+                    
+                    # Check that CSV writer was created
+                    mock_csv_writer.assert_called_once()
+                    
+                    # Check that Anki header was written
+                    expected_header = [
+                        'Front (Eksempel med ord fjernet eller blankt)',
+                        'Front (Billede)', 
+                        'Front (Definition, grundform, osv.)',
+                        'Back (et enkelt ord/udtryk, uden kontekst)',
+                        '- Hele sætningen (intakt)',
+                        '- Ekstra info (IPA, køn, bøjning)',
+                        '• Lav 2 kort?'
+                    ]
+                    mock_writer_instance.writerow.assert_any_call(expected_header)
+                    
+                    # Should have written 6 data rows (3 cards for hund + 3 cards for kat)
+                    self.assertEqual(mock_writer_instance.writerows.call_count, 1)
+                    written_data = mock_writer_instance.writerows.call_args[0][0]
+                    self.assertEqual(len(written_data), 6)
+                    
+                    # Check first card (Card Type 1 for 'hund')
+                    self.assertIn('___', written_data[0][0])  # Should have blank
+                    self.assertEqual(written_data[0][1], '<img src="myimage.jpg">')  # Image
+                    self.assertEqual(written_data[0][2], '')  # No definition for card 1
+                    self.assertEqual(written_data[0][3], 'hund')  # Back word
+                    self.assertEqual(written_data[0][4], 'Min hund elsker at lege i parken.')  # Full sentence
+                    self.assertIn('[sound:hund.mp3]', written_data[0][5])  # Audio file
+                    self.assertEqual(written_data[0][6], 'y')  # Make 2 cards
+                    
+                    # Check second card (Card Type 2 for 'hund') 
+                    self.assertNotIn('hund', written_data[1][0].lower())  # Word should be removed
+                    self.assertEqual(written_data[1][1], '<img src="myimage.jpg">')  # Image
+                    self.assertIn('hund', written_data[1][2])  # Should have definition
+                    self.assertEqual(written_data[1][3], '')  # No back word for card 2
+                    self.assertEqual(written_data[1][4], 'Hunden løb hurtigt efter bolden.')  # Full sentence
+                    self.assertIn('[sound:hund.mp3]', written_data[1][5])  # Audio file
+                    self.assertEqual(written_data[1][6], '')  # No make 2 cards
+                    
+                    # Check third card (Card Type 3 for 'hund')
+                    self.assertIn('___', written_data[2][0])  # Should have blank
+                    self.assertEqual(written_data[2][1], '<img src="myimage.jpg">')  # Image
+                    self.assertEqual(written_data[2][2], '')  # No definition for card 3
+                    self.assertEqual(written_data[2][3], 'hund')  # Back word
+                    self.assertEqual(written_data[2][4], 'Vi har en stor, venlig hund.')  # Full sentence
+                    self.assertIn('[sound:hund.mp3]', written_data[2][5])  # Audio file
+                    self.assertEqual(written_data[2][6], '')  # No make 2 cards
 
 
 if __name__ == '__main__':

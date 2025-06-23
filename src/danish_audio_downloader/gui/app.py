@@ -4,6 +4,8 @@ Main GUI application for Danish Audio Downloader.
 
 import os
 import sys
+import csv
+import re
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                             QHBoxLayout, QLabel, QPushButton, QTextEdit, 
                             QFileDialog, QProgressBar, QCheckBox, QMessageBox,
@@ -204,10 +206,20 @@ class DanishAudioApp(QMainWindow):
         self.sentence_results.setMinimumHeight(300)
         results_layout.addWidget(self.sentence_results)
         
-        # Save results button
-        save_results_button = QPushButton("Save Results to File")
+        # Save buttons layout
+        save_buttons_layout = QHBoxLayout()
+        
+        # Save results as text button
+        save_results_button = QPushButton("Save as Text File")
         save_results_button.clicked.connect(self.save_sentence_results)
-        results_layout.addWidget(save_results_button)
+        save_buttons_layout.addWidget(save_results_button)
+        
+        # Save results as CSV button
+        save_csv_button = QPushButton("Save as CSV File")
+        save_csv_button.clicked.connect(self.save_sentence_results_csv)
+        save_buttons_layout.addWidget(save_csv_button)
+        
+        results_layout.addLayout(save_buttons_layout)
         
         results_group.setLayout(results_layout)
         layout.addWidget(results_group)
@@ -563,6 +575,312 @@ class DanishAudioApp(QMainWindow):
                 self.sentence_log(f"Results saved to {file_path}")
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Error saving file: {str(e)}")
+
+    def save_sentence_results_csv(self):
+        """Save the generated sentences to a CSV file."""
+        if not self.sentence_results.toPlainText().strip():
+            QMessageBox.warning(self, "No Results", "No sentences to save.")
+            return
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Sentence Results as CSV", "danish_example_sentences.csv", 
+            "CSV Files (*.csv);;All Files (*)"
+        )
+        
+        if file_path:
+            try:
+                self._export_sentences_to_csv(file_path)
+                QMessageBox.information(self, "Saved", f"Results saved to {file_path}")
+                self.sentence_log(f"Results saved as CSV to {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error saving CSV file: {str(e)}")
+
+    def _export_sentences_to_csv(self, file_path):
+        """Export sentences to CSV format for Anki import with specific card types."""
+        content = self.sentence_results.toPlainText()
+        
+        # Parse the content to extract words and sentences
+        csv_data = []
+        
+        # Split by word blocks - looking for pattern like "**word**" at start of line, followed by content
+        word_blocks = re.split(r'\n\s*---\s*\n', content)
+        
+        for block in word_blocks:
+            block = block.strip()
+            if not block:
+                continue
+                
+            # Extract the word from the beginning of the block
+            word_match = re.match(r'\*\*([^*]+)\*\*', block)
+            if not word_match:
+                continue
+                
+            word = word_match.group(1).strip()
+            
+            # Skip if this is formatting text
+            if word.lower() in ['example sentences', 'eksempel sætninger']:
+                continue
+            
+            # Extract grammar information from the block
+            grammar_info = self._extract_grammar_info(block)
+            
+            # Extract sentences from the block
+            sentence_pattern = r'(\d+)\.\s*([^-\n]+?)\s*-\s*([^\n]+?)(?=\n\d+\.|\n\n|\Z)'
+            matches = re.findall(sentence_pattern, block, re.DOTALL)
+            
+            if not matches:
+                continue
+            
+            sentences = []
+            for match in matches:
+                sentence_num, danish, english = match
+                danish = danish.strip()
+                english = english.strip()
+                if danish and english:
+                    sentences.append(danish)
+            
+            if len(sentences) >= 3:
+                # Generate the three card types for this word with grammar info
+                csv_data.extend(self._generate_anki_cards(word, sentences[:3], grammar_info))
+        
+        # Write to CSV file
+        with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.writer(csvfile)
+            # Write header - Anki import format
+            writer.writerow([
+                'Front (Eksempel med ord fjernet eller blankt)',
+                'Front (Billede)', 
+                'Front (Definition, grundform, osv.)',
+                'Back (et enkelt ord/udtryk, uden kontekst)',
+                '- Hele sætningen (intakt)',
+                '- Ekstra info (IPA, køn, bøjning)',
+                '• Lav 2 kort?'
+            ])
+            # Write data
+            writer.writerows(csv_data)
+    
+    def _extract_grammar_info(self, block):
+        """Extract grammar information from a word block."""
+        grammar_info = {
+            'ipa': '',
+            'type': '',
+            'gender': '',
+            'plural': '',
+            'inflections': '',
+            'definition': ''
+        }
+        
+        # Look for grammar info section
+        grammar_match = re.search(r'\*\*Grammar Info:\*\*(.*?)(?=\*\*Example Sentences:\*\*|\Z)', block, re.DOTALL)
+        if grammar_match:
+            grammar_section = grammar_match.group(1).strip()
+            
+            # Extract IPA
+            ipa_match = re.search(r'IPA:\s*([^\n]+)', grammar_section)
+            if ipa_match:
+                grammar_info['ipa'] = ipa_match.group(1).strip()
+            
+            # Extract type
+            type_match = re.search(r'Type:\s*([^\n]+)', grammar_section)
+            if type_match:
+                grammar_info['type'] = type_match.group(1).strip()
+            
+            # Extract gender
+            gender_match = re.search(r'Gender:\s*([^\n]+)', grammar_section)
+            if gender_match:
+                grammar_info['gender'] = gender_match.group(1).strip()
+            
+            # Extract plural
+            plural_match = re.search(r'Plural:\s*([^\n]+)', grammar_section)
+            if plural_match:
+                grammar_info['plural'] = plural_match.group(1).strip()
+            
+            # Extract inflections
+            inflections_match = re.search(r'Inflections:\s*([^\n]+)', grammar_section)
+            if inflections_match:
+                grammar_info['inflections'] = inflections_match.group(1).strip()
+            
+            # Extract definition
+            definition_match = re.search(r'Definition:\s*([^\n]+)', grammar_section)
+            if definition_match:
+                grammar_info['definition'] = definition_match.group(1).strip()
+        
+        return grammar_info
+    
+    def _generate_anki_cards(self, word, sentences, grammar_info=None):
+        """Generate three card types for a word with the given sentences."""
+        cards = []
+        
+        if len(sentences) < 3:
+            return cards
+        
+        # Helper function to remove word from sentence
+        def remove_word_from_sentence(sentence, word_to_remove, use_blank=True):
+            # Create patterns for the word and common inflected forms
+            base_word = word_to_remove.lower()
+            patterns = [
+                r'\b' + re.escape(word_to_remove) + r'\b',  # exact match
+                r'\b' + re.escape(word_to_remove.capitalize()) + r'\b',  # capitalized
+                r'\b' + re.escape(word_to_remove.upper()) + r'\b',  # uppercase
+            ]
+            
+            # Add common Danish inflections
+            if base_word.endswith('e'):
+                # For words ending in 'e', try without 'e' + common endings
+                stem = base_word[:-1]
+                patterns.extend([
+                    r'\b' + re.escape(stem + 'en') + r'\b',  # definite form
+                    r'\b' + re.escape(stem + 'er') + r'\b',  # plural
+                    r'\b' + re.escape(stem + 'erne') + r'\b',  # definite plural
+                ])
+            else:
+                # For words not ending in 'e', add common endings
+                patterns.extend([
+                    r'\b' + re.escape(base_word + 'en') + r'\b',  # definite form (en-words)
+                    r'\b' + re.escape(base_word + 'et') + r'\b',  # neuter definite (et-words)
+                    r'\b' + re.escape(base_word + 'e') + r'\b',   # adjective/verb form
+                    r'\b' + re.escape(base_word + 'er') + r'\b',  # plural/present
+                    r'\b' + re.escape(base_word + 'erne') + r'\b', # definite plural
+                ])
+            
+            # Special case for common double consonant patterns (e.g., kat -> katten)
+            if len(base_word) >= 2 and base_word[-1] == base_word[-2]:
+                # Double consonant at end (like "kat" -> "katt")
+                single_consonant = base_word[:-1]
+                patterns.extend([
+                    r'\b' + re.escape(single_consonant + 'en') + r'\b',  # katten
+                    r'\b' + re.escape(single_consonant + 'er') + r'\b',  # katter
+                    r'\b' + re.escape(single_consonant + 'erne') + r'\b', # katterne
+                ])
+            elif len(base_word) >= 2:
+                # Try adding double consonant for inflection (kat -> katt -> katten)
+                last_consonant = base_word[-1]
+                if last_consonant not in 'aeiouæøå':  # if last letter is consonant
+                    double_consonant_stem = base_word + last_consonant
+                    patterns.extend([
+                        r'\b' + re.escape(double_consonant_stem + 'en') + r'\b',  # katten
+                        r'\b' + re.escape(double_consonant_stem + 'er') + r'\b',  # katter
+                        r'\b' + re.escape(double_consonant_stem + 'erne') + r'\b', # katterne
+                    ])
+            
+            # Try each pattern
+            result_sentence = sentence
+            for pattern in patterns:
+                if re.search(pattern, result_sentence, flags=re.IGNORECASE):
+                    if use_blank:
+                        result_sentence = re.sub(pattern, '___', result_sentence, flags=re.IGNORECASE)
+                    else:
+                        result_sentence = re.sub(pattern, '', result_sentence, flags=re.IGNORECASE)
+                    break
+            
+            if not use_blank:
+                # Clean up extra spaces and punctuation
+                result_sentence = re.sub(r'\s+', ' ', result_sentence).strip()
+                result_sentence = re.sub(r'\s+([,.!?])', r'\1', result_sentence)
+                
+            return result_sentence
+        
+        # Initialize grammar info if not provided
+        if grammar_info is None:
+            grammar_info = {
+                'ipa': f'IPA_for_{word}',
+                'type': 'ukendt',
+                'gender': '',
+                'plural': '',
+                'inflections': f'Grammatik info for {word}',
+                'definition': f'Definition af {word}'
+            }
+        
+        # Card Type 1: Fill-in-the-blank + IPA
+        sentence1_with_blank = remove_word_from_sentence(sentences[0], word, use_blank=True)
+        ipa_info = grammar_info['ipa'] if grammar_info['ipa'] else f'/IPA_for_{word}/'
+        if not ipa_info.startswith('/'):
+            ipa_info = f'/{ipa_info}/'
+        cards.append([
+            sentence1_with_blank,                    # Front (Eksempel med ord fjernet eller blankt)
+            '<img src="myimage.jpg">',               # Front (Billede)
+            '',                                      # Front (Definition, grundform, osv.) - empty for card 1
+            word,                                    # Back (et enkelt ord/udtryk, uden kontekst)
+            sentences[0],                            # - Hele sætningen (intakt)
+            f'{ipa_info} [sound:{word}.mp3]',        # - Ekstra info (IPA, køn, bøjning)
+            'y'                                      # • Lav 2 kort?
+        ])
+        
+        # Card Type 2: Fill-in-the-blank + definition
+        sentence2_no_word = remove_word_from_sentence(sentences[1], word, use_blank=False)
+        definition_text = self._format_definition(word, grammar_info)
+        grammar_details = self._format_grammar_details(grammar_info)
+        cards.append([
+            sentence2_no_word,                       # Front (Eksempel med ord fjernet eller blankt)
+            '<img src="myimage.jpg">',               # Front (Billede)
+            definition_text,                         # Front (Definition, grundform, osv.)
+            '',                                      # Back (et enkelt ord/udtryk, uden kontekst) - empty for card 2
+            sentences[1],                            # - Hele sætningen (intakt)
+            f'{grammar_details} [sound:{word}.mp3]', # - Ekstra info (IPA, køn, bøjning)
+            ''                                       # • Lav 2 kort? - empty for card 2
+        ])
+        
+        # Card Type 3: New sentence with blank
+        sentence3_with_blank = remove_word_from_sentence(sentences[2], word, use_blank=True)
+        cards.append([
+            sentence3_with_blank,                    # Front (Eksempel med ord fjernet eller blankt)
+            '<img src="myimage.jpg">',               # Front (Billede)
+            '',                                      # Front (Definition, grundform, osv.) - empty for card 3
+            word,                                    # Back (et enkelt ord/udtryk, uden kontekst)
+            sentences[2],                            # - Hele sætningen (intakt)
+            f'{grammar_details} [sound:{word}.mp3]', # - Ekstra info (IPA, køn, bøjning)
+            ''                                       # • Lav 2 kort? - empty for card 3
+        ])
+        
+        return cards
+    
+    def _format_definition(self, word, grammar_info):
+        """Format definition text for Card Type 2."""
+        definition_parts = [word]
+        
+        if grammar_info.get('type'):
+            definition_parts.append(f"({grammar_info['type']})")
+        
+        # Add gender for nouns
+        if grammar_info.get('gender'):
+            definition_parts.append(f"[{grammar_info['gender']}]")
+        
+        # Add basic definition if available
+        if grammar_info.get('definition'):
+            definition_parts.append(grammar_info['definition'])
+        else:
+            definition_parts.append("Definition nødvendig")
+        
+        return "\n".join(definition_parts)
+    
+    def _format_grammar_details(self, grammar_info):
+        """Format detailed grammar information."""
+        details = []
+        
+        # Add IPA if available
+        if grammar_info.get('ipa'):
+            ipa = grammar_info['ipa']
+            if not ipa.startswith('/'):
+                ipa = f'/{ipa}/'
+            details.append(ipa)
+        
+        # Add type
+        if grammar_info.get('type'):
+            details.append(grammar_info['type'])
+        
+        # Add gender for nouns
+        if grammar_info.get('gender'):
+            details.append(f"køn: {grammar_info['gender']}")
+        
+        # Add plural form
+        if grammar_info.get('plural'):
+            details.append(f"flertal: {grammar_info['plural']}")
+        
+        # Add inflections
+        if grammar_info.get('inflections'):
+            details.append(f"bøjning: {grammar_info['inflections']}")
+        
+        return " | ".join(details) if details else "Grammatik info nødvendig"
 
 
 def main():

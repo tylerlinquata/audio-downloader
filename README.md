@@ -6,9 +6,13 @@ A Python application for downloading Danish word pronunciations from ordnet.dk a
 
 - **Clean GUI Interface** - Intuitive tabbed interface for different functions
 - **Audio Downloads** - Download audio for multiple Danish words from ordnet.dk
-- **Example Sentences** - Generate context-appropriate sentences using ChatGPT with CEFR level targeting
+- **AI-Powered Sentence Generation** - Generate context-appropriate sentences using ChatGPT with CEFR level targeting
+- **Comprehensive Grammar Integration** - Automatically extract IPA pronunciation, word types, gender, and inflections
+- **Advanced Anki Integration** - Export sentences as Anki-ready CSV files with multiple card types per word
+- **Intelligent Word Processing** - Smart detection and handling of Danish inflected forms
+- **Multiple Export Formats** - Save sentences as formatted text or structured CSV files
 - **Audio Validation** - Automatically validates downloaded files to ensure they're correct
-- **Anki Integration** - Saves files locally and optionally copies them to your Anki media collection
+- **Anki Media Integration** - Saves files locally and optionally copies them to your Anki media collection
 - **Progress Tracking** - Real-time progress updates and detailed logging
 - **Settings Management** - Persistent settings for directories, API keys, and preferences
 
@@ -104,7 +108,33 @@ src/
 3. Select your CEFR level (A1-C2) for appropriate difficulty
 4. Enter your OpenAI API key (save it in Settings for convenience)
 5. Click "Generate Example Sentences"
-6. Save the results to a file when complete
+6. Save the results in your preferred format:
+   - **Text File**: Save as formatted text with markdown-style formatting
+   - **CSV File**: Save as structured CSV for Anki import with three card types per word:
+     * **Card Type 1**: Fill-in-the-blank with IPA pronunciation
+     * **Card Type 2**: Word removed from sentence with definition provided
+     * **Card Type 3**: Different sentence with fill-in-the-blank format
+
+#### Enhanced Grammar Integration
+The app now requests comprehensive grammar information from ChatGPT for each word in Danish:
+- **IPA Pronunciation**: Actual Danish IPA transcription in slashes (e.g., `/hun/`)
+- **Word Type**: Danish word types (substantiv, verbum, adjektiv, etc.)
+- **Gender**: `en` or `et` for Danish nouns
+- **Plural Forms**: Complete plural declensions
+- **Inflections**: Definite forms, conjugations, comparative/superlative forms
+- **Definitions**: Danish definitions and explanations
+
+#### Anki CSV Format
+The CSV export creates Anki-ready cards with these columns populated with real grammar data and Danish text throughout:
+- **Front (Eksempel med ord fjernet eller blankt)**: Sentence with word removed or blanked
+- **Front (Billede)**: Image placeholder (`<img src="myimage.jpg">`)
+- **Front (Definition, grundform, osv.)**: Real Danish word type, gender, and definition
+- **Back (et enkelt ord/udtryk, uden kontekst)**: The target word
+- **- Hele sætningen (intakt)**: Complete sentence with word intact
+- **- Ekstra info (IPA, køn, bøjning)**: Real IPA, Danish grammar labels (`køn:`, `flertal:`, `bøjning:`), and audio reference
+- **• Lav 2 kort?**: Flag for creating additional card variations
+
+All card content uses Danish labels and fallback text (e.g., "Definition nødvendig", "Grammatik info nødvendig") to maintain language consistency.
 
 ### Settings Configuration
 1. Go to the "Settings" tab
