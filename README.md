@@ -1,90 +1,208 @@
-# I didn't write any ### Method 1: Run the Python script directly
-
-1. Make sure you have Python 3.x installed
-2. Install the required packages:
-   ```
-   pip install -r requirements.txt
-   ```
-   Or manually:
-   ```
-   pip install PyQt5 requests beautifulsoup4 openai
-   ```all the required packages:
-   ```
-   pip install PyQt5 requests beautifulsoup4 openai
-   ```he code in this repository
-
-
 # Danish Word Audio Downloader
 
-A macOS application for downloading Danish word pronunciations from ordnet.dk and saving them to your Anki collection.
+A Python application for downloading Danish word pronunciations from ordnet.dk and saving them to your Anki collection. Features a modern, modular architecture following Python best practices.
 
 ## Features
 
-- Simple GUI interface
-- Download audio for multiple Danish words from ordnet.dk
-- Generate example sentences for Danish words using ChatGPT with CEFR level targeting
-- Automatically validates audio files to ensure they're correct
-- Saves files to a local folder and optionally copies them to your Anki media collection
-- Keeps track of failed downloads
+- **Clean GUI Interface** - Intuitive tabbed interface for different functions
+- **Audio Downloads** - Download audio for multiple Danish words from ordnet.dk
+- **Example Sentences** - Generate context-appropriate sentences using ChatGPT with CEFR level targeting
+- **Audio Validation** - Automatically validates downloaded files to ensure they're correct
+- **Anki Integration** - Saves files locally and optionally copies them to your Anki media collection
+- **Progress Tracking** - Real-time progress updates and detailed logging
+- **Settings Management** - Persistent settings for directories, API keys, and preferences
 
-## Running the Application
+## Project Structure
 
-### Method 1: Run the Python script directly
+This project follows Python best practices with a modular architecture:
 
-1. Make sure you have Python 3.x installed
-2. Install the required packages:
+```
+src/
+├── danish_audio_downloader/
+│   ├── __init__.py              # Package initialization
+│   ├── core/                    # Core business logic
+│   │   ├── __init__.py
+│   │   ├── downloader.py        # Audio download functionality
+│   │   ├── worker.py            # Download worker thread
+│   │   └── sentence_worker.py   # Sentence generation worker
+│   ├── gui/                     # User interface
+│   │   ├── __init__.py
+│   │   └── app.py               # Main application window
+│   └── utils/                   # Utilities and configuration
+│       ├── __init__.py
+│       ├── config.py            # Configuration management
+│       └── validators.py        # Validation utilities
+├── main.py                      # Application entry point
+└── tests/                       # Comprehensive test suite
+```
+
+## Installation & Setup
+
+### Prerequisites
+
+- Python 3.8 or higher
+- macOS (primarily tested, should work on other platforms)
+
+### Method 1: Run the Python application directly
+
+1. **Clone the repository:**
+   ```bash
+   git clone <repository-url>
+   cd audio-downloader
    ```
-   pip install PyQt5 requests beautifulsoup4
+
+2. **Create a virtual environment (recommended):**
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate  # On macOS/Linux
    ```
-3. Run the application:
+
+3. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
    ```
-   python "Danish Word Audio Downloader GUI.py"
+
+4. **Run the application:**
+   ```bash
+   python main.py
    ```
 
 ### Method 2: Build a macOS app bundle
 
-1. Install the required packages:
+1. **Follow steps 1-3 from Method 1**
+
+2. **Install py2app:**
+   ```bash
+   pip install py2app
    ```
-   pip install -r requirements.txt
+
+3. **Build the app:**
+   ```bash
+   # Using the build script (recommended)
+   make build-app
+   
+   # Or manually
+   chmod +x build-tools/build_app.sh
+   ./build-tools/build_app.sh
    ```
-   Or manually:
-   ```
-   pip install PyQt5 requests beautifulsoup4 openai py2app
-   ```
-2. Build the app:
-   ```
-   python setup.py py2app
-   ```
-3. The application will be created in the `dist` folder
-4. Copy the app to your Applications folder
+
+4. **Find the app in the `dist` folder and copy to Applications**
 
 ## Usage
 
 ### Audio Download
-1. Enter Danish words in the text area (one word per line) or load them from a file
-2. Configure the output directory and Anki media folder in the Settings tab
-3. Check or uncheck the "Copy to Anki Media Folder" option as needed
-4. Click "Start Download" to begin downloading audio files
-5. View the progress in the log area
+1. Launch the application and go to the "Download" tab
+2. Enter Danish words (one per line) or load them from a text file
+3. Configure output directory and Anki media folder in the "Settings" tab
+4. Check "Copy to Anki Media Folder" if you want automatic Anki integration
+5. Click "Start Download" to begin
+6. Monitor progress in the log area
 
 ### Example Sentences Generation
 1. Go to the "Example Sentences" tab
-2. Enter Danish words in the text area (one word per line) or load them from a file
-3. Select your CEFR level (A1, A2, B1, B2, C1, C2) from the dropdown
-4. Enter your OpenAI API key (you can save it in the Settings tab)
-5. Click "Generate Example Sentences" to create context-appropriate sentences
+2. Enter Danish words (one per line) or load them from a file
+3. Select your CEFR level (A1-C2) for appropriate difficulty
+4. Enter your OpenAI API key (save it in Settings for convenience)
+5. Click "Generate Example Sentences"
 6. Save the results to a file when complete
 
-## Notes
+### Settings Configuration
+1. Go to the "Settings" tab
+2. Set your preferred output directory
+3. Configure your Anki media folder path
+4. Save your OpenAI API key for sentence generation
+5. Click "Save Settings" to persist your configuration
 
-- If a word fails to download, it will be added to a list of failed words
-- Failed words will be saved to `failed_words.txt` in the output directory
-- The application will remember your settings between runs
-- For the example sentences feature, you'll need an OpenAI API key
-- Generated sentences are tailored to your selected CEFR level for appropriate difficulty
+## Development
+
+### Running Tests
+
+The project includes a comprehensive test suite with 34+ tests covering core functionality and GUI components.
+
+```bash
+# Run all tests
+python tests/run_tests.py
+
+# Run smoke tests
+python tests/smoke_test.py
+
+# Use Make commands (recommended)
+make test              # Run all tests
+make test-smoke        # Run smoke tests only
+make build-app         # Build macOS app bundle
+```
+
+### Code Structure
+
+- **Core Logic** (`src/danish_audio_downloader/core/`): Business logic separated from UI
+- **GUI Components** (`src/danish_audio_downloader/gui/`): PyQt5-based user interface
+- **Utilities** (`src/danish_audio_downloader/utils/`): Configuration, validation, and helper functions
+- **Tests** (`tests/`): Comprehensive unit tests with mocking for external dependencies
+- **Build Tools** (`build-tools/`): App building scripts and resources
+
+### Dependencies
+
+**Core Application:**
+- PyQt5 - GUI framework
+- requests - HTTP client for downloading
+- beautifulsoup4 - HTML parsing
+- openai - GPT integration for sentence generation
+
+**Development & Testing:**
+- pytest - Testing framework
+- pytest-qt - GUI testing utilities
+- pytest-mock - Mocking support
+
+## Configuration
+
+The application stores settings using Qt's QSettings system:
+- **Output Directory**: Where audio files are saved
+- **Anki Media Folder**: Path to Anki's media collection
+- **OpenAI API Key**: For sentence generation feature
+- **CEFR Level**: Default difficulty level for sentences
 
 ## Troubleshooting
 
-- If downloads fail, check your internet connection
-- Make sure the Anki media folder path is correct (typically found at ~/Library/Application Support/Anki2/User 1/collection.media)
-- If Anki is running while you download files, you may need to synchronize or restart Anki to see the new audio files
+### Audio Downloads
+- **Downloads fail**: Check internet connection and verify ordnet.dk is accessible
+- **Invalid audio files**: The app validates downloads automatically; failed files are logged
+- **Permission errors**: Ensure write access to the output directory
+
+### Anki Integration
+- **Files not appearing in Anki**: Check that the media folder path is correct
+- **Path location**: Usually `~/Library/Application Support/Anki2/User 1/collection.media` on macOS
+- **Anki sync issues**: Restart Anki or sync manually after adding new files
+
+### Sentence Generation
+- **API errors**: Verify your OpenAI API key is valid and has credits
+- **Rate limiting**: The app includes delays between requests to respect API limits
+- **Model availability**: Uses GPT-3.5-turbo by default (configurable in code)
+
+## Contributing
+
+1. **Fork the repository**
+2. **Create a feature branch**: `git checkout -b feature-name`
+3. **Make your changes** following the existing code structure
+4. **Run tests**: `python run_tests.py`
+5. **Submit a pull request**
+
+### Code Standards
+- Follow PEP 8 style guidelines
+- Add tests for new functionality
+- Update documentation as needed
+- Maintain the modular architecture
+
+## License
+
+This project is open source. See the LICENSE file for details.
+
+## Support
+
+For issues, feature requests, or questions:
+1. Check the troubleshooting section above
+2. Review existing issues in the repository
+3. Create a new issue with detailed information about your problem
+
+---
+
+**Note**: This application is designed for educational and personal use. Please respect ordnet.dk's terms of service and rate limits when downloading audio files.

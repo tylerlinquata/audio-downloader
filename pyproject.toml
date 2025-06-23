@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "danish-audio-downloader"
+version = "1.0.0"
+description = "A Python application for downloading Danish word pronunciations from ordnet.dk"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Tyler Linquata", email = "your.email@example.com"},
+]
+maintainers = [
+    {name = "Tyler Linquata", email = "your.email@example.com"},
+]
+keywords = ["danish", "audio", "pronunciation", "anki", "language-learning"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Education",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Education :: Computer Aided Instruction (CAI)",
+    "Topic :: Multimedia :: Sound/Audio",
+]
+dependencies = [
+    "PyQt5>=5.15.0",
+    "requests>=2.25.0",
+    "beautifulsoup4>=4.9.0",
+    "openai>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-qt>=4.0",
+    "pytest-mock>=3.0",
+]
+app = [
+    "py2app>=0.28",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/danish-audio-downloader"
+Documentation = "https://github.com/yourusername/danish-audio-downloader#readme"
+Repository = "https://github.com/yourusername/danish-audio-downloader.git"
+"Bug Tracker" = "https://github.com/yourusername/danish-audio-downloader/issues"
+
+[project.scripts]
+danish-audio-downloader = "danish_audio_downloader.main:main"
+
+[project.gui-scripts]
+danish-audio-downloader-gui = "danish_audio_downloader.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+danish_audio_downloader = ["*.txt", "*.md", "*.icns"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"

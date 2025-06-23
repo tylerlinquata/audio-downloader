@@ -11,33 +11,21 @@ import json
 import sys
 from unittest.mock import Mock, patch, MagicMock, mock_open
 
+# Add src to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src'))
+
+from danish_audio_downloader.core.downloader import DanishAudioDownloader
+from danish_audio_downloader.core.worker import Worker
+from danish_audio_downloader.core.sentence_worker import SentenceWorker
+
 
 class TestDanishAudioDownloader(unittest.TestCase):
     """Test cases for the DanishAudioDownloader class."""
     
-    @classmethod
-    def setUpClass(cls):
-        """Set up the Danish GUI module for all tests."""
-        import importlib.util
-        
-        # Load the module dynamically
-        spec = importlib.util.spec_from_file_location(
-            "danish_gui", 
-            "Danish Word Audio Downloader GUI.py"
-        )
-        danish_gui = importlib.util.module_from_spec(spec)
-        sys.modules["danish_gui"] = danish_gui
-        spec.loader.exec_module(danish_gui)
-        
-        # Store classes for use in tests
-        cls.DanishAudioDownloader = danish_gui.DanishAudioDownloader
-        cls.Worker = danish_gui.Worker
-        cls.SentenceWorker = danish_gui.SentenceWorker
-    
     def setUp(self):
         """Set up test fixtures before each test method."""
         self.temp_dir = tempfile.mkdtemp()
-        self.downloader = self.DanishAudioDownloader(
+        self.downloader = DanishAudioDownloader(
             output_dir=self.temp_dir,
             anki_folder="",
             signal_handler=None
@@ -53,13 +41,13 @@ class TestDanishAudioDownloader(unittest.TestCase):
         new_temp_dir = os.path.join(self.temp_dir, "new_output_dir")
         self.assertFalse(os.path.exists(new_temp_dir))
         
-        downloader = self.DanishAudioDownloader(output_dir=new_temp_dir)
+        downloader = DanishAudioDownloader(output_dir=new_temp_dir)
         self.assertTrue(os.path.exists(new_temp_dir))
     
     def test_log_with_signal_handler(self):
         """Test logging with a signal handler."""
         mock_signal = Mock()
-        downloader = self.DanishAudioDownloader(
+        downloader = DanishAudioDownloader(
             output_dir=self.temp_dir,
             signal_handler=mock_signal
         )
@@ -118,7 +106,7 @@ class TestDanishAudioDownloader(unittest.TestCase):
             f.write(b'test content')
         
         # Test with empty anki_folder
-        downloader = self.DanishAudioDownloader(
+        downloader = DanishAudioDownloader(
             output_dir=self.temp_dir,
             anki_folder=""
         )
@@ -137,7 +125,7 @@ class TestDanishAudioDownloader(unittest.TestCase):
         with open(source_file, 'wb') as f:
             f.write(b'test content')
         
-        downloader = self.DanishAudioDownloader(
+        downloader = DanishAudioDownloader(
             output_dir=self.temp_dir,
             anki_folder=anki_folder
         )
@@ -151,7 +139,7 @@ class TestDanishAudioDownloader(unittest.TestCase):
     
     def test_session_headers_configuration(self):
         """Test that the session headers are configured correctly."""
-        downloader = self.DanishAudioDownloader(output_dir=self.temp_dir)
+        downloader = DanishAudioDownloader(output_dir=self.temp_dir)
         
         headers = downloader.session.headers
         self.assertIn('User-Agent', headers)
@@ -166,23 +154,6 @@ class TestDanishAudioDownloader(unittest.TestCase):
 class TestWorkerThread(unittest.TestCase):
     """Test cases for the Worker thread class."""
     
-    @classmethod
-    def setUpClass(cls):
-        """Set up the Danish GUI module for all tests."""
-        import importlib.util
-        
-        # Load the module dynamically
-        spec = importlib.util.spec_from_file_location(
-            "danish_gui", 
-            "Danish Word Audio Downloader GUI.py"
-        )
-        danish_gui = importlib.util.module_from_spec(spec)
-        sys.modules["danish_gui"] = danish_gui
-        spec.loader.exec_module(danish_gui)
-        
-        # Store classes for use in tests
-        cls.Worker = danish_gui.Worker
-    
     def setUp(self):
         """Set up test fixtures."""
         self.temp_dir = tempfile.mkdtemp()
@@ -195,7 +166,7 @@ class TestWorkerThread(unittest.TestCase):
     def test_worker_initialization(self):
         """Test Worker thread initialization."""
         words = ["test1", "test2"]
-        worker = self.Worker(words, self.temp_dir, False, "")
+        worker = Worker(words, self.temp_dir, False, "")
         
         self.assertEqual(worker.words, words)
         self.assertEqual(worker.output_dir, self.temp_dir)
@@ -205,7 +176,7 @@ class TestWorkerThread(unittest.TestCase):
     
     def test_worker_abort(self):
         """Test Worker thread abort functionality."""
-        worker = self.Worker(["test"], self.temp_dir, False, "")
+        worker = Worker(["test"], self.temp_dir, False, "")
         
         # Initially abort_flag should be False
         self.assertFalse(worker.abort_flag)
@@ -220,30 +191,13 @@ class TestWorkerThread(unittest.TestCase):
 class TestSentenceWorker(unittest.TestCase):
     """Test cases for the SentenceWorker thread class."""
     
-    @classmethod
-    def setUpClass(cls):
-        """Set up the Danish GUI module for all tests."""
-        import importlib.util
-        
-        # Load the module dynamically
-        spec = importlib.util.spec_from_file_location(
-            "danish_gui", 
-            "Danish Word Audio Downloader GUI.py"
-        )
-        danish_gui = importlib.util.module_from_spec(spec)
-        sys.modules["danish_gui"] = danish_gui
-        spec.loader.exec_module(danish_gui)
-        
-        # Store classes for use in tests
-        cls.SentenceWorker = danish_gui.SentenceWorker
-    
     def test_sentence_worker_initialization(self):
         """Test SentenceWorker thread initialization."""
         words = ["hund", "kat"]
         cefr_level = "B1"
         api_key = "test_key"
         
-        worker = self.SentenceWorker(words, cefr_level, api_key)
+        worker = SentenceWorker(words, cefr_level, api_key)
         
         self.assertEqual(worker.words, words)
         self.assertEqual(worker.cefr_level, cefr_level)
@@ -252,7 +206,7 @@ class TestSentenceWorker(unittest.TestCase):
     
     def test_sentence_worker_abort(self):
         """Test SentenceWorker thread abort functionality."""
-        worker = self.SentenceWorker(["test"], "B1", "test_key")
+        worker = SentenceWorker(["test"], "B1", "test_key")
         
         # Initially abort_flag should be False
         self.assertFalse(worker.abort_flag)

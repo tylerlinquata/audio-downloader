@@ -8,6 +8,7 @@ help:
 	@echo "  test          - Run all tests"
 	@echo "  test-gui      - Run GUI tests only"
 	@echo "  test-smoke    - Run smoke tests only"
+	@echo "  build-app     - Build macOS app bundle"
 	@echo "  install-deps  - Install test dependencies"
 	@echo "  lint          - Run code linting"
 	@echo "  coverage      - Run tests with coverage report"
@@ -16,22 +17,28 @@ help:
 # Run all tests
 test:
 	@echo "Running all tests..."
-	@. .venv/bin/activate && python run_tests.py
+	@. .venv/bin/activate && python tests/run_tests.py
 
 # Run GUI tests only
 test-gui:
 	@echo "Running GUI tests..."
-	@. .venv/bin/activate && python -m unittest test_gui_components -v
+	@. .venv/bin/activate && python -m unittest tests.test_gui_components -v
 
 # Run smoke tests only
 test-smoke:
 	@echo "Running smoke tests..."
-	@. .venv/bin/activate && python smoke_test.py
+	@. .venv/bin/activate && python tests/smoke_test.py
+
+# Build macOS app bundle
+build-app:
+	@echo "Building macOS app bundle..."
+	@chmod +x build-tools/build_app.sh
+	@./build-tools/build_app.sh
 
 # Install test dependencies
 install-deps:
 	@echo "Installing test dependencies..."
-	@. .venv/bin/activate && pip install -r requirements-test.txt
+	@. .venv/bin/activate && pip install -r tests/requirements-test.txt
 
 # Run linting
 lint:

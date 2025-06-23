@@ -12,24 +12,10 @@ from PyQt5.QtCore import QSettings
 from PyQt5.QtTest import QTest
 from PyQt5.QtCore import Qt
 
-# Add the current directory to the path so we can import our modules
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add src to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src'))
 
-# Import the GUI class we want to test
-# We need to import from the file with spaces replaced by underscores
-import importlib.util
-
-# Load the module dynamically
-spec = importlib.util.spec_from_file_location(
-    "danish_gui", 
-    "Danish Word Audio Downloader GUI.py"
-)
-danish_gui = importlib.util.module_from_spec(spec)
-sys.modules["danish_gui"] = danish_gui
-spec.loader.exec_module(danish_gui)
-
-# Import the class
-DanishAudioApp = danish_gui.DanishAudioApp
+from danish_audio_downloader.gui.app import DanishAudioApp
 
 
 class TestDanishAudioApp(unittest.TestCase):
@@ -118,7 +104,7 @@ class TestDanishAudioApp(unittest.TestCase):
         self.assertTrue(self.main_window.output_dir_input.text().endswith("danish_pronunciations"))
         self.assertTrue("collection.media" in self.main_window.anki_dir_input.text())
     
-    @patch('danish_gui.QFileDialog.getOpenFileName')
+    @patch('danish_audio_downloader.gui.app.QFileDialog.getOpenFileName')
     def test_load_from_file(self, mock_file_dialog):
         """Test loading words from a file."""
         # Mock file dialog to return a test file path
@@ -137,7 +123,7 @@ class TestDanishAudioApp(unittest.TestCase):
             loaded_words = [line.strip() for line in loaded_text.split('\n') if line.strip()]
             self.assertEqual(loaded_words, expected_words)
     
-    @patch('danish_gui.QFileDialog.getExistingDirectory')
+    @patch('danish_audio_downloader.gui.app.QFileDialog.getExistingDirectory')
     def test_browse_output_dir(self, mock_dir_dialog):
         """Test browsing for output directory."""
         test_dir = "/tmp/test_output"
@@ -147,7 +133,7 @@ class TestDanishAudioApp(unittest.TestCase):
         
         self.assertEqual(self.main_window.output_dir_input.text(), test_dir)
     
-    @patch('danish_gui.QFileDialog.getExistingDirectory')
+    @patch('danish_audio_downloader.gui.app.QFileDialog.getExistingDirectory')
     def test_browse_anki_dir(self, mock_dir_dialog):
         """Test browsing for Anki directory."""
         test_dir = "/tmp/test_anki"
@@ -168,7 +154,7 @@ class TestDanishAudioApp(unittest.TestCase):
         self.main_window.anki_dir_input.setText(test_anki_dir)
         self.main_window.settings_api_key_input.setText(test_api_key)
         
-        with patch('danish_gui.QMessageBox.information'):
+        with patch('danish_audio_downloader.gui.app.QMessageBox.information'):
             self.main_window.save_settings()
         
         # Check that settings were saved
@@ -201,7 +187,7 @@ class TestDanishAudioApp(unittest.TestCase):
         self.assertEqual(self.main_window.settings_api_key_input.text(), test_api_key)
         self.assertEqual(self.main_window.api_key_input.text(), test_api_key)
     
-    @patch('danish_gui.QMessageBox.warning')
+    @patch('danish_audio_downloader.gui.app.QMessageBox.warning')
     def test_start_download_no_words(self, mock_warning):
         """Test starting download with no words."""
         # Clear the word input
@@ -212,7 +198,7 @@ class TestDanishAudioApp(unittest.TestCase):
         # Should show warning
         mock_warning.assert_called_once()
     
-    @patch('danish_gui.Worker')
+    @patch('danish_audio_downloader.gui.app.Worker')
     @patch('os.makedirs')
     def test_start_download_success(self, mock_makedirs, mock_worker_class):
         """Test successful start of download process."""
@@ -257,7 +243,7 @@ class TestDanishAudioApp(unittest.TestCase):
         successful = ["hund", "kat"]
         failed = ["invalidword"]
         
-        with patch('danish_gui.QMessageBox.information') as mock_info:
+        with patch('danish_audio_downloader.gui.app.QMessageBox.information') as mock_info:
             self.main_window.download_finished(successful, failed)
         
         # Check that message box was shown
@@ -267,7 +253,7 @@ class TestDanishAudioApp(unittest.TestCase):
         self.assertTrue(self.main_window.download_button.isEnabled())
         self.assertFalse(self.main_window.cancel_button.isEnabled())
     
-    @patch('danish_gui.QMessageBox.warning')
+    @patch('danish_audio_downloader.gui.app.QMessageBox.warning')
     def test_start_sentence_generation_no_words(self, mock_warning):
         """Test starting sentence generation with no words."""
         # Clear the sentence word input
@@ -278,7 +264,7 @@ class TestDanishAudioApp(unittest.TestCase):
         # Should show warning
         mock_warning.assert_called_once()
     
-    @patch('danish_gui.QMessageBox.warning')
+    @patch('danish_audio_downloader.gui.app.QMessageBox.warning')
     def test_start_sentence_generation_no_api_key(self, mock_warning):
         """Test starting sentence generation with no API key."""
         # Set words but no API key
@@ -294,7 +280,7 @@ class TestDanishAudioApp(unittest.TestCase):
         """Test sentence generation finished callback."""
         test_results = "**hund**\n\nExample sentences for hund..."
         
-        with patch('danish_gui.QMessageBox.information') as mock_info:
+        with patch('danish_audio_downloader.gui.app.QMessageBox.information') as mock_info:
             self.main_window.sentence_generation_finished(test_results)
         
         # Check that results were set
@@ -307,8 +293,8 @@ class TestDanishAudioApp(unittest.TestCase):
         self.assertTrue(self.main_window.generate_button.isEnabled())
         self.assertFalse(self.main_window.cancel_sentence_button.isEnabled())
     
-    @patch('danish_gui.QFileDialog.getSaveFileName')
-    @patch('danish_gui.QMessageBox.warning')
+    @patch('danish_audio_downloader.gui.app.QFileDialog.getSaveFileName')
+    @patch('danish_audio_downloader.gui.app.QMessageBox.warning')
     def test_save_sentence_results_no_content(self, mock_warning, mock_save_dialog):
         """Test saving sentence results when there's no content."""
         # Clear results
@@ -320,7 +306,7 @@ class TestDanishAudioApp(unittest.TestCase):
         mock_warning.assert_called_once()
         mock_save_dialog.assert_not_called()
     
-    @patch('danish_gui.QFileDialog.getSaveFileName')
+    @patch('danish_audio_downloader.gui.app.QFileDialog.getSaveFileName')
     def test_save_sentence_results_success(self, mock_save_dialog):
         """Test successful saving of sentence results."""
         # Set some results
@@ -332,7 +318,7 @@ class TestDanishAudioApp(unittest.TestCase):
         mock_save_dialog.return_value = (test_file_path, "")
         
         with patch('builtins.open', unittest.mock.mock_open()) as mock_file:
-            with patch('danish_gui.QMessageBox.information'):
+            with patch('danish_audio_downloader.gui.app.QMessageBox.information'):
                 self.main_window.save_sentence_results()
             
             # Check that file was written

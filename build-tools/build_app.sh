@@ -3,13 +3,16 @@
 
 echo "Building Danish Word Audio Downloader application..."
 
+# Change to project root directory
+cd "$(dirname "$0")/.."
+
 # Clean any previous build
 echo "Cleaning previous builds..."
 rm -rf build dist
 
 # Build the app
 echo "Running py2app..."
-python setup.py py2app
+python build-tools/setup.py py2app
 
 if [ -d "dist/Danish Audio Downloader.app" ]; then
     echo "Application successfully built!"

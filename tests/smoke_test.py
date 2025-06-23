@@ -8,27 +8,21 @@ import os
 import tempfile
 import shutil
 
-# Add the current directory to the path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add the parent directory to the path (project root)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def test_basic_imports():
     """Test that we can import the main classes."""
     print("Testing basic imports...")
     
     try:
-        # Dynamic import
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "danish_gui", 
-            os.path.join(os.path.dirname(__file__), "Danish Word Audio Downloader GUI.py")
-        )
-        danish_gui = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(danish_gui)
+        # Import from new modular structure
+        from src.danish_audio_downloader.core.downloader import DanishAudioDownloader
         
         # Test that classes can be instantiated
         temp_dir = tempfile.mkdtemp()
         try:
-            downloader = danish_gui.DanishAudioDownloader(output_dir=temp_dir)
+            downloader = DanishAudioDownloader(output_dir=temp_dir)
             print("✓ DanishAudioDownloader can be instantiated")
             
             # Test basic functionality
@@ -58,16 +52,11 @@ def test_gui_imports():
         if not QApplication.instance():
             app = QApplication([])
         
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "danish_gui", 
-            os.path.join(os.path.dirname(__file__), "Danish Word Audio Downloader GUI.py")
-        )
-        danish_gui = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(danish_gui)
+        # Import from new modular structure
+        from src.danish_audio_downloader.gui.app import DanishAudioApp
         
         # Test GUI class
-        main_window = danish_gui.DanishAudioApp()
+        main_window = DanishAudioApp()
         print("✓ DanishAudioApp can be instantiated")
         
         # Test basic properties

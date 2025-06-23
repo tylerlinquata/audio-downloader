@@ -10,12 +10,12 @@ import os
 import time
 from io import StringIO
 
-# Add the current directory to the path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add the parent directory to the path (project root)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import test modules
 try:
-    import test_danish_audio_downloader
+    import test_core_functionality
     import test_gui_components
 except ImportError as e:
     print(f"Error importing test modules: {e}")
@@ -149,7 +149,7 @@ def discover_tests():
     # Add test modules
     try:
         # Core functionality tests
-        core_tests = loader.loadTestsFromModule(test_danish_audio_downloader)
+        core_tests = loader.loadTestsFromModule(test_core_functionality)
         suite.addTest(core_tests)
         print("✓ Loaded core functionality tests")
         

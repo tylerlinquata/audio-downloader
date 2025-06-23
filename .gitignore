@@ -27,10 +27,11 @@ MANIFEST
 *.manifest
 *.spec
 
-# py2app
+# py2app (macOS app building)
 build/
 dist/
 *.dmg
+*.app
 
 # Unit test / coverage reports
 htmlcov/
@@ -45,6 +46,7 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+test-reports/
 
 # Environments
 .env
@@ -86,25 +88,92 @@ danish_pronunciations/
 *.wav
 *.ogg
 *.m4a
+*.aac
+*.flac
 
-# Application specific
+# Application specific files
 failed_words.txt
 test_words.txt
+*_debug.html
+
+# Build tools artifacts
+build-tools/build/
+build-tools/dist/
+build-tools/*.dmg
+build-tools/*.app
 
 # Icon creation artifacts
 app.iconset/
 app_icon.png
+*.iconset/
+icon_*.png
 
-# IDE
+# IDE and editors
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+.vim/
+.emacs.d/
+*.sublime-project
+*.sublime-workspace
 
-# Logs
+# Logs and temporary files
 *.log
-
-# Temporary files
 *.tmp
 *.temp
+*.bak
+*.backup
+
+# Documentation builds
+docs/_build/
+docs/build/
+site/
+
+# OS specific files (expanded)
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+Thumbs.db
+Desktop.ini
+
+# Development and debugging
+.debug/
+debug.log
+error.log
+*.pid
+
+# Package managers and lock files
+Pipfile.lock
+poetry.lock
+pdm.lock
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Profiling
+.prof
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Local configuration
+local_settings.py
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Security
+.secrets/
+secrets.txt
+api_keys.txt
