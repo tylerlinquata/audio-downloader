@@ -69,20 +69,14 @@ class TestDanishAudioApp(unittest.TestCase):
         """Test that main tab widgets are created correctly."""
         # Check that essential widgets exist
         self.assertIsNotNone(self.main_window.word_input)
-        self.assertIsNotNone(self.main_window.anki_checkbox)
         self.assertIsNotNone(self.main_window.audio_progress_bar)
         self.assertIsNotNone(self.main_window.sentence_progress_bar)
         self.assertIsNotNone(self.main_window.log_output)
-        self.assertIsNotNone(self.main_window.process_button)
-        self.assertIsNotNone(self.main_window.cancel_button)
-        self.assertIsNotNone(self.main_window.cefr_combo)
-        self.assertIsNotNone(self.main_window.api_key_input)
+        self.assertIsNotNone(self.main_window.action_button)
         self.assertIsNotNone(self.main_window.sentence_results)
         
         # Check initial states
-        self.assertTrue(self.main_window.anki_checkbox.isChecked())
-        self.assertFalse(self.main_window.cancel_button.isEnabled())
-        self.assertEqual(self.main_window.cefr_combo.currentText(), "B1")
+        self.assertEqual(self.main_window.app_state, "idle")
     
     def test_settings_tab_widgets(self):
         """Test that settings tab widgets are created correctly."""
@@ -90,10 +84,12 @@ class TestDanishAudioApp(unittest.TestCase):
         self.assertIsNotNone(self.main_window.output_dir_input)
         self.assertIsNotNone(self.main_window.anki_dir_input)
         self.assertIsNotNone(self.main_window.settings_api_key_input)
+        self.assertIsNotNone(self.main_window.cefr_combo)
         
         # Check default values
         self.assertTrue(self.main_window.output_dir_input.text().endswith("danish_pronunciations"))
         self.assertTrue("collection.media" in self.main_window.anki_dir_input.text())
+        self.assertEqual(self.main_window.cefr_combo.currentText(), "B1")
     @patch('danish_audio_downloader.gui.app.QFileDialog.getExistingDirectory')
     def test_browse_output_dir(self, mock_dir_dialog):
         """Test browsing for output directory."""
@@ -120,10 +116,12 @@ class TestDanishAudioApp(unittest.TestCase):
         test_output_dir = "/tmp/test_output"
         test_anki_dir = "/tmp/test_anki"
         test_api_key = "test_api_key"
+        test_cefr_level = "C1"
         
         self.main_window.output_dir_input.setText(test_output_dir)
         self.main_window.anki_dir_input.setText(test_anki_dir)
         self.main_window.settings_api_key_input.setText(test_api_key)
+        self.main_window.cefr_combo.setCurrentText(test_cefr_level)
         
         with patch('danish_audio_downloader.gui.app.QMessageBox.information'):
             self.main_window.save_settings()
@@ -132,6 +130,7 @@ class TestDanishAudioApp(unittest.TestCase):
         self.mock_settings.setValue.assert_any_call("output_dir", test_output_dir)
         self.mock_settings.setValue.assert_any_call("anki_dir", test_anki_dir)
         self.mock_settings.setValue.assert_any_call("openai_api_key", test_api_key)
+        self.mock_settings.setValue.assert_any_call("cefr_level", test_cefr_level)
     
     def test_load_settings(self):
         """Test loading settings."""
@@ -139,12 +138,14 @@ class TestDanishAudioApp(unittest.TestCase):
         test_output_dir = "/tmp/test_output"
         test_anki_dir = "/tmp/test_anki"
         test_api_key = "test_api_key"
+        test_cefr_level = "A2"
         
         def mock_value(key):
             values = {
                 "output_dir": test_output_dir,
                 "anki_dir": test_anki_dir,
-                "openai_api_key": test_api_key
+                "openai_api_key": test_api_key,
+                "cefr_level": test_cefr_level
             }
             return values.get(key)
         
@@ -156,7 +157,7 @@ class TestDanishAudioApp(unittest.TestCase):
         self.assertEqual(self.main_window.output_dir_input.text(), test_output_dir)
         self.assertEqual(self.main_window.anki_dir_input.text(), test_anki_dir)
         self.assertEqual(self.main_window.settings_api_key_input.text(), test_api_key)
-        self.assertEqual(self.main_window.api_key_input.text(), test_api_key)
+        self.assertEqual(self.main_window.cefr_combo.currentText(), test_cefr_level)
     
     @patch('danish_audio_downloader.gui.app.QMessageBox.warning')
     def test_start_processing_no_words(self, mock_warning):
@@ -172,9 +173,9 @@ class TestDanishAudioApp(unittest.TestCase):
     @patch('danish_audio_downloader.gui.app.QMessageBox.warning')
     def test_start_processing_no_api_key(self, mock_warning):
         """Test starting processing with no API key."""
-        # Set up test words but no API key
+        # Set up test words but no API key in settings
         self.main_window.word_input.setPlainText("hund\nkat\nhus")
-        self.main_window.api_key_input.clear()
+        self.main_window.settings_api_key_input.clear()
         
         self.main_window.start_processing()
         
@@ -185,9 +186,9 @@ class TestDanishAudioApp(unittest.TestCase):
     @patch('os.makedirs')
     def test_start_processing_success(self, mock_makedirs, mock_worker_class):
         """Test successful start of unified processing."""
-        # Set up test words and API key
+        # Set up test words and API key in settings
         self.main_window.word_input.setPlainText("hund\nkat\nhus")
-        self.main_window.api_key_input.setText("test-api-key")
+        self.main_window.settings_api_key_input.setText("test-api-key")
         
         # Mock worker
         mock_worker = Mock()
@@ -200,8 +201,8 @@ class TestDanishAudioApp(unittest.TestCase):
         mock_worker.start.assert_called_once()
         
         # Check UI state changes
-        self.assertFalse(self.main_window.process_button.isEnabled())
-        self.assertTrue(self.main_window.cancel_button.isEnabled())
+        self.assertEqual(self.main_window.app_state, "processing")
+        self.assertEqual(self.main_window.action_button.text(), "Cancel Processing")
     
     def test_update_audio_progress(self):
         """Test audio progress bar update."""
@@ -260,8 +261,8 @@ class TestDanishAudioApp(unittest.TestCase):
         mock_info.assert_called_once()
         
         # Check UI state reset
-        self.assertTrue(self.main_window.process_button.isEnabled())
-        self.assertFalse(self.main_window.cancel_button.isEnabled())
+        self.assertEqual(self.main_window.app_state, "results_ready")
+        self.assertEqual(self.main_window.action_button.text(), "Save as Anki CSV")
         
         # Check that results were set
         self.assertEqual(self.main_window.sentence_results.toPlainText(), test_results)
@@ -282,6 +283,9 @@ class TestDanishAudioApp(unittest.TestCase):
     @patch('danish_audio_downloader.gui.app.QFileDialog.getSaveFileName')
     def test_save_sentence_results_csv_success(self, mock_save_dialog):
         """Test successful saving of sentence results as CSV for Anki import."""
+        # Set the button to results ready state first
+        self.main_window.update_button_state("results_ready")
+        
         # Set some properly formatted results with at least 3 sentences per word
         test_results = """**hund**
 
@@ -364,6 +368,50 @@ class TestDanishAudioApp(unittest.TestCase):
                     self.assertEqual(written_data[2][4], 'Hunden løb hurtigt efter bolden.')  # Full sentence (should match Card 2)
                     self.assertIn('[sound:hund.mp3]', written_data[2][5])  # Audio file
                     self.assertEqual(written_data[2][6], '')  # No make 2 cards
+                    
+                    # Check that state transitions back to idle after successful save
+                    self.assertEqual(self.main_window.app_state, "idle")
+
+    def test_dynamic_button_states(self):
+        """Test that the dynamic action button changes states correctly."""
+        # Initial state should be idle
+        self.assertEqual(self.main_window.app_state, "idle")
+        self.assertEqual(self.main_window.action_button.text(), "Process Words (Audio + Sentences)")
+        
+        # Test transition to processing state
+        self.main_window.update_button_state("processing")
+        self.assertEqual(self.main_window.app_state, "processing")
+        self.assertEqual(self.main_window.action_button.text(), "Cancel Processing")
+        
+        # Test transition to results ready state
+        self.main_window.update_button_state("results_ready")
+        self.assertEqual(self.main_window.app_state, "results_ready")
+        self.assertEqual(self.main_window.action_button.text(), "Save as Anki CSV")
+        
+        # Test transition back to idle
+        self.main_window.update_button_state("idle")
+        self.assertEqual(self.main_window.app_state, "idle")
+        self.assertEqual(self.main_window.action_button.text(), "Process Words (Audio + Sentences)")
+    
+    def test_action_button_handler(self):
+        """Test that the action button handler calls the correct methods based on state."""
+        # Test idle state calls start_processing
+        self.main_window.update_button_state("idle")
+        with patch.object(self.main_window, 'start_processing') as mock_start:
+            self.main_window.handle_action_button()
+            mock_start.assert_called_once()
+        
+        # Test processing state calls cancel_processing
+        self.main_window.update_button_state("processing")
+        with patch.object(self.main_window, 'cancel_processing') as mock_cancel:
+            self.main_window.handle_action_button()
+            mock_cancel.assert_called_once()
+        
+        # Test results_ready state calls save_sentence_results_csv
+        self.main_window.update_button_state("results_ready")
+        with patch.object(self.main_window, 'save_sentence_results_csv') as mock_save:
+            self.main_window.handle_action_button()
+            mock_save.assert_called_once()
 
 
 if __name__ == '__main__':

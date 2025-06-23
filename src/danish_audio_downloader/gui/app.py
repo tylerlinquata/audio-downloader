@@ -35,6 +35,9 @@ class DanishAudioApp(QMainWindow):
         self.worker = None
         self.sentence_worker = None
         
+        # Set initial button state
+        self.update_button_state("idle")
+        
     def init_ui(self):
         """Initialize the user interface."""
         self.setWindowTitle("Danish Word Learning Assistant")
@@ -74,30 +77,6 @@ class DanishAudioApp(QMainWindow):
         
         word_group.setLayout(word_layout)
         layout.addWidget(word_group)
-        
-        # Processing options
-        options_group = QGroupBox("Processing Options")
-        options_layout = QFormLayout()
-        
-        # CEFR Level dropdown
-        self.cefr_combo = QComboBox()
-        self.cefr_combo.addItems(["A1", "A2", "B1", "B2", "C1", "C2"])
-        self.cefr_combo.setCurrentText("B1")
-        options_layout.addRow("CEFR Level for Sentences:", self.cefr_combo)
-        
-        # OpenAI API Key input
-        self.api_key_input = QLineEdit()
-        self.api_key_input.setEchoMode(QLineEdit.Password)
-        self.api_key_input.setPlaceholderText("Enter your OpenAI API key (required for sentence generation)")
-        options_layout.addRow("OpenAI API Key:", self.api_key_input)
-        
-        # Save to Anki checkbox
-        self.anki_checkbox = QCheckBox("Copy audio files to Anki Media Folder")
-        self.anki_checkbox.setChecked(True)
-        options_layout.addRow("", self.anki_checkbox)
-        
-        options_group.setLayout(options_layout)
-        layout.addWidget(options_group)
         
         # Progress area
         progress_group = QGroupBox("Processing Progress")
@@ -139,33 +118,20 @@ class DanishAudioApp(QMainWindow):
         self.sentence_results.setMinimumHeight(300)
         results_layout.addWidget(self.sentence_results)
         
-        # Save buttons layout
-        save_buttons_layout = QHBoxLayout()
-        
-        # Save results as CSV button
-        save_csv_button = QPushButton("Save as Anki CSV")
-        save_csv_button.clicked.connect(self.save_sentence_results_csv)
-        save_buttons_layout.addWidget(save_csv_button)
-        
-        results_layout.addLayout(save_buttons_layout)
-        
         results_group.setLayout(results_layout)
         layout.addWidget(results_group)
         
-        # Main action buttons
+        # Main action button (dynamic)
         button_layout = QHBoxLayout()
         
-        # Process button
-        self.process_button = QPushButton("Process Words (Audio + Sentences)")
-        self.process_button.clicked.connect(self.start_processing)
-        self.process_button.setStyleSheet("QPushButton { font-weight: bold; padding: 10px; }")
-        button_layout.addWidget(self.process_button)
+        # Dynamic action button that changes based on application state
+        self.action_button = QPushButton("Process Words (Audio + Sentences)")
+        self.action_button.clicked.connect(self.handle_action_button)
+        self.action_button.setStyleSheet("QPushButton { font-weight: bold; padding: 12px; }")
+        button_layout.addWidget(self.action_button)
         
-        # Cancel button
-        self.cancel_button = QPushButton("Cancel Processing")
-        self.cancel_button.clicked.connect(self.cancel_processing)
-        self.cancel_button.setEnabled(False)
-        button_layout.addWidget(self.cancel_button)
+        # Initialize button state
+        self.app_state = "idle"  # idle, processing, results_ready
         
         layout.addLayout(button_layout)
         
@@ -206,6 +172,19 @@ class DanishAudioApp(QMainWindow):
         
         folders_group.setLayout(folders_layout)
         layout.addWidget(folders_group)
+        
+        # Processing options
+        processing_group = QGroupBox("Processing Options")
+        processing_layout = QFormLayout()
+        
+        # CEFR Level dropdown
+        self.cefr_combo = QComboBox()
+        self.cefr_combo.addItems(["A1", "A2", "B1", "B2", "C1", "C2"])
+        self.cefr_combo.setCurrentText("B1")
+        processing_layout.addRow("CEFR Level for Sentences:", self.cefr_combo)
+        
+        processing_group.setLayout(processing_layout)
+        layout.addWidget(processing_group)
         
         # API settings
         api_group = QGroupBox("API Settings")
@@ -253,10 +232,7 @@ class DanishAudioApp(QMainWindow):
         self.settings.setValue("output_dir", self.output_dir_input.text())
         self.settings.setValue("anki_dir", self.anki_dir_input.text())
         self.settings.setValue("openai_api_key", self.settings_api_key_input.text())
-        
-        # Also update the sentence tab API key if it's empty
-        if not self.api_key_input.text().strip():
-            self.api_key_input.setText(self.settings_api_key_input.text())
+        self.settings.setValue("cefr_level", self.cefr_combo.currentText())
         
         QMessageBox.information(self, "Settings Saved", "Settings have been saved.")
     
@@ -265,6 +241,7 @@ class DanishAudioApp(QMainWindow):
         output_dir = self.settings.value("output_dir")
         anki_dir = self.settings.value("anki_dir")
         api_key = self.settings.value("openai_api_key")
+        cefr_level = self.settings.value("cefr_level")
         
         if output_dir:
             self.output_dir_input.setText(output_dir)
@@ -274,7 +251,9 @@ class DanishAudioApp(QMainWindow):
             
         if api_key:
             self.settings_api_key_input.setText(api_key)
-            self.api_key_input.setText(api_key)
+            
+        if cefr_level:
+            self.cefr_combo.setCurrentText(cefr_level)
     
     def start_processing(self):
         """Start the unified processing (audio download + sentence generation)."""
@@ -286,16 +265,16 @@ class DanishAudioApp(QMainWindow):
             
         words = [line.strip() for line in word_text.split('\n') if line.strip()]
         
-        # Get API key for sentence generation
-        api_key = self.api_key_input.text().strip()
+        # Get API key for sentence generation from settings
+        api_key = self.settings_api_key_input.text().strip()
         if not api_key:
-            QMessageBox.warning(self, "No API Key", "Please enter your OpenAI API key for sentence generation.")
+            QMessageBox.warning(self, "No API Key", "Please enter your OpenAI API key in the Settings tab.")
             return
         
-        # Get output directory and Anki settings
+        # Get output directory and Anki settings (always copy to Anki)
         output_dir = self.output_dir_input.text()
-        copy_to_anki = self.anki_checkbox.isChecked()
-        anki_folder = self.anki_dir_input.text() if copy_to_anki else ""
+        copy_to_anki = True  # Always copy audio files to Anki
+        anki_folder = self.anki_dir_input.text()
         
         # Create directory if it doesn't exist
         if not os.path.exists(output_dir):
@@ -306,8 +285,7 @@ class DanishAudioApp(QMainWindow):
                 return
         
         # Update UI for processing state
-        self.process_button.setEnabled(False)
-        self.cancel_button.setEnabled(True)
+        self.update_button_state("processing")
         self.audio_progress_bar.setValue(0)
         self.sentence_progress_bar.setValue(0)
         self.sentence_results.clear()
@@ -371,8 +349,7 @@ class DanishAudioApp(QMainWindow):
         self.log("Both audio files and example sentences have been generated.")
         
         # Update UI
-        self.process_button.setEnabled(True)
-        self.cancel_button.setEnabled(False)
+        self.update_button_state("results_ready")
         
         # Show completion message
         word_count = len(self.pending_sentence_generation['words'])
@@ -384,6 +361,34 @@ class DanishAudioApp(QMainWindow):
             "✓ Example sentences generated\n" +
             "✓ Ready for Anki import"
         )
+        
+        # Update button state to results ready
+        self.update_button_state("results_ready")
+    def handle_action_button(self):
+        """Handle clicks on the dynamic action button based on current state."""
+        if self.app_state == "idle":
+            self.start_processing()
+        elif self.app_state == "processing":
+            self.cancel_processing()
+        elif self.app_state == "results_ready":
+            self.save_sentence_results_csv()
+    
+    def update_button_state(self, new_state):
+        """Update the dynamic button based on application state."""
+        self.app_state = new_state
+        
+        if new_state == "idle":
+            self.action_button.setText("Process Words (Audio + Sentences)")
+            self.action_button.setStyleSheet("QPushButton { font-weight: bold; padding: 12px; background-color: #4CAF50; color: white; }")
+            self.action_button.setEnabled(True)
+        elif new_state == "processing":
+            self.action_button.setText("Cancel Processing")
+            self.action_button.setStyleSheet("QPushButton { font-weight: bold; padding: 12px; background-color: #f44336; color: white; }")
+            self.action_button.setEnabled(True)
+        elif new_state == "results_ready":
+            self.action_button.setText("Save as Anki CSV")
+            self.action_button.setStyleSheet("QPushButton { font-weight: bold; padding: 12px; background-color: #2196F3; color: white; }")
+            self.action_button.setEnabled(True)
     
     def cancel_processing(self):
         """Cancel the unified processing."""
@@ -402,8 +407,10 @@ class DanishAudioApp(QMainWindow):
         self.log("Processing cancelled.")
         
         # Update UI
-        self.process_button.setEnabled(True)
-        self.cancel_button.setEnabled(False)
+        self.update_button_state("idle")
+        
+        # Update button state to idle
+        self.update_button_state("idle")
     
     def update_audio_progress(self, current, total):
         """Update the audio download progress bar."""
@@ -416,8 +423,7 @@ class DanishAudioApp(QMainWindow):
         QMessageBox.critical(self, "Error", error_msg)
         
         # Update UI
-        self.process_button.setEnabled(True)
-        self.cancel_button.setEnabled(False)
+        self.update_button_state("idle")
     
     def update_sentence_progress(self, current, total):
         """Update the sentence generation progress bar."""
@@ -448,6 +454,8 @@ class DanishAudioApp(QMainWindow):
                 self._export_sentences_to_csv(file_path)
                 QMessageBox.information(self, "Saved", f"Results saved to {file_path}")
                 self.log(f"Anki CSV export saved to {file_path}")
+                # Transition button back to processing mode to allow new processing
+                self.update_button_state("idle")
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Error saving CSV file: {str(e)}")
 

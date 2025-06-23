@@ -14,7 +14,7 @@ A Python application for downloading Danish word pronunciations from ordnet.dk a
 - **Dual Progress Tracking** - Separate progress bars for audio downloads and sentence generation phases
 - **Anki CSV Export** - Save sentences as structured CSV files ready for Anki import
 - **Audio Validation** - Automatically validates downloaded files to ensure they're correct
-- **Anki Media Integration** - Saves files locally and optionally copies them to your Anki media collection
+- **Automatic Anki Integration** - Audio files are automatically saved locally and copied to your Anki media collection
 - **Detailed Logging** - Real-time updates and comprehensive logging for both processing phases
 - **Settings Management** - Persistent settings for directories, API keys, and preferences
 
@@ -101,16 +101,19 @@ The application now combines audio downloads and sentence generation into a sing
 
 1. Launch the application and go to the "Process Words" tab
 2. Enter Danish words (one per line) in the text area
-3. Configure your settings:
+3. Configure your settings in the **Settings tab**:
    - **Output Directory**: Where audio files will be saved
-   - **Copy to Anki Media Folder**: Check this to automatically copy audio files to Anki
+   - **Anki Media Folder**: Path to your Anki collection's media folder  
    - **CEFR Level**: Select A1-C2 for appropriate sentence difficulty
-   - **OpenAI API Key**: Required for sentence generation (save in Settings for convenience)
-4. Click "Process Words" to start the unified workflow
+   - **OpenAI API Key**: Required for sentence generation
+   - **Note**: Audio files are automatically saved to both the output directory and copied to your Anki Media Folder
+4. Return to the "Process Words" tab and click the main action button to start processing (the button will dynamically change based on the application state):
+   - **"Process Words (Audio + Sentences)"** - Click to start the unified workflow
+   - **"Cancel Processing"** - Click during processing to cancel the current operation  
+   - **"Save as Anki CSV"** - Click after completion to save results and return to processing mode
 5. **Phase 1**: Audio files are downloaded first with progress tracking
 6. **Phase 2**: Example sentences are automatically generated after audio completion
 7. Monitor progress with dual progress bars and detailed logging
-8. Save the generated sentences as Anki-ready CSV files with three card types per word
 
 ### Advanced Features
 
@@ -136,15 +139,19 @@ The CSV export creates Anki-ready cards with these columns populated with real g
 All card content uses Danish labels and fallback text (e.g., "Definition nødvendig", "Grammatik info nødvendig") to maintain language consistency.
 
 ### Settings Configuration
-The application provides a dedicated Settings tab for configuration:
+The application provides a dedicated Settings tab for all configuration options:
 
 1. Go to the "Settings" tab
-2. **Output Directory**: Set where audio files and failed word lists are saved
-3. **Anki Media Folder**: Configure the path to your Anki collection's media folder
-4. **OpenAI API Key**: Save your API key for sentence generation (securely stored)
+2. **Folders**:
+   - **Output Directory**: Set where audio files and failed word lists are saved
+   - **Anki Media Folder**: Configure the path to your Anki collection's media folder
+3. **Processing Options**:
+   - **CEFR Level for Sentences**: Choose difficulty level (A1-C2) for generated example sentences
+4. **API Settings**:
+   - **OpenAI API Key**: Save your API key for sentence generation (securely stored)
 5. Click "Save Settings" to persist your configuration across sessions
 
-The unified workflow uses these settings automatically, eliminating the need to configure them separately for each phase.
+All processing options are now centralized in the Settings tab, making configuration easier and keeping the main processing interface clean and focused.
 
 ## Development
 
