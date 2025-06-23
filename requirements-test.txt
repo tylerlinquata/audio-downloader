@@ -1,0 +1,23 @@
+# Testing requirements for Danish Audio Downloader
+# Install with: pip install -r requirements-test.txt
+
+# Core application requirements
+PyQt5>=5.15.0
+requests>=2.25.0
+beautifulsoup4>=4.9.0
+openai>=1.0.0
+
+# Testing frameworks
+pytest>=7.0.0
+pytest-qt>=4.0.0
+pytest-mock>=3.6.0
+pytest-cov>=4.0.0
+pytest-timeout>=2.1.0
+
+# For GUI testing without display
+pytest-xvfb>=2.0.0; sys_platform == "linux"
+
+# Additional testing utilities
+responses>=0.20.0  # For mocking HTTP requests
+freezegun>=1.2.0   # For mocking time
+factory-boy>=3.2.0 # For creating test data

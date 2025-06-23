@@ -1,0 +1,10 @@
+hund
+kat
+hus
+bil
+bog
+vand
+mad
+stor
+lille
+god
