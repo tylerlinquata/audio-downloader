@@ -12,7 +12,7 @@ A Python application for downloading Danish word pronunciations from ordnet.dk a
 - **Advanced Anki Integration** - Export sentences as Anki-ready CSV files with multiple card types per word
 - **Intelligent Word Processing** - Smart detection and handling of Danish inflected forms
 - **Dual Progress Tracking** - Separate progress bars for audio downloads and sentence generation phases
-- **Multiple Export Formats** - Save sentences as formatted text or structured CSV files
+- **Anki CSV Export** - Save sentences as structured CSV files ready for Anki import
 - **Audio Validation** - Automatically validates downloaded files to ensure they're correct
 - **Anki Media Integration** - Saves files locally and optionally copies them to your Anki media collection
 - **Detailed Logging** - Real-time updates and comprehensive logging for both processing phases
@@ -100,7 +100,7 @@ src/
 The application now combines audio downloads and sentence generation into a single streamlined workflow:
 
 1. Launch the application and go to the "Process Words" tab
-2. Enter Danish words (one per line) or load them from a text file using the "Load from File" button
+2. Enter Danish words (one per line) in the text area
 3. Configure your settings:
    - **Output Directory**: Where audio files will be saved
    - **Copy to Anki Media Folder**: Check this to automatically copy audio files to Anki
@@ -110,9 +110,7 @@ The application now combines audio downloads and sentence generation into a sing
 5. **Phase 1**: Audio files are downloaded first with progress tracking
 6. **Phase 2**: Example sentences are automatically generated after audio completion
 7. Monitor progress with dual progress bars and detailed logging
-8. Save the generated sentences in your preferred format:
-   - **Text File**: Formatted text with markdown-style formatting
-   - **CSV File**: Structured CSV for Anki import with three card types per word
+8. Save the generated sentences as Anki-ready CSV files with three card types per word
 
 ### Advanced Features
 

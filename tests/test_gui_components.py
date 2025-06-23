@@ -94,25 +94,6 @@ class TestDanishAudioApp(unittest.TestCase):
         # Check default values
         self.assertTrue(self.main_window.output_dir_input.text().endswith("danish_pronunciations"))
         self.assertTrue("collection.media" in self.main_window.anki_dir_input.text())
-    @patch('danish_audio_downloader.gui.app.QFileDialog.getOpenFileName')
-    def test_load_from_file(self, mock_file_dialog):
-        """Test loading words from a file."""
-        # Mock file dialog to return a test file path
-        test_file_path = "/tmp/test_words.txt"
-        mock_file_dialog.return_value = (test_file_path, "")
-        
-        # Mock file content
-        test_content = "hund\nkat\nhus\n"
-        
-        with patch('builtins.open', unittest.mock.mock_open(read_data=test_content)):
-            self.main_window.load_from_file()
-            
-            # Check that words were loaded into the text area
-            loaded_text = self.main_window.word_input.toPlainText()
-            expected_words = ["hund", "kat", "hus"]
-            loaded_words = [line.strip() for line in loaded_text.split('\n') if line.strip()]
-            self.assertEqual(loaded_words, expected_words)
-    
     @patch('danish_audio_downloader.gui.app.QFileDialog.getExistingDirectory')
     def test_browse_output_dir(self, mock_dir_dialog):
         """Test browsing for output directory."""
@@ -285,38 +266,6 @@ class TestDanishAudioApp(unittest.TestCase):
         # Check that results were set
         self.assertEqual(self.main_window.sentence_results.toPlainText(), test_results)
     
-    @patch('danish_audio_downloader.gui.app.QFileDialog.getSaveFileName')
-    @patch('danish_audio_downloader.gui.app.QMessageBox.warning')
-    def test_save_sentence_results_no_content(self, mock_warning, mock_save_dialog):
-        """Test saving sentence results when there's no content."""
-        # Clear results
-        self.main_window.sentence_results.clear()
-        
-        self.main_window.save_sentence_results()
-        
-        # Should show warning and not open save dialog
-        mock_warning.assert_called_once()
-        mock_save_dialog.assert_not_called()
-    
-    @patch('danish_audio_downloader.gui.app.QFileDialog.getSaveFileName')
-    def test_save_sentence_results_success(self, mock_save_dialog):
-        """Test successful saving of sentence results."""
-        # Set some results
-        test_results = "**hund**\n\nExample sentences..."
-        self.main_window.sentence_results.setPlainText(test_results)
-        
-        # Mock file dialog
-        test_file_path = "/tmp/test_results.txt"
-        mock_save_dialog.return_value = (test_file_path, "")
-        
-        with patch('builtins.open', unittest.mock.mock_open()) as mock_file:
-            with patch('danish_audio_downloader.gui.app.QMessageBox.information'):
-                self.main_window.save_sentence_results()
-            
-            # Check that file was written
-            mock_file.assert_called_once_with(test_file_path, 'w', encoding='utf-8')
-            mock_file().write.assert_called_once_with(test_results)
-
     @patch('danish_audio_downloader.gui.app.QFileDialog.getSaveFileName')
     @patch('danish_audio_downloader.gui.app.QMessageBox.warning')
     def test_save_sentence_results_csv_no_content(self, mock_warning, mock_save_dialog):

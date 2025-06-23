@@ -72,11 +72,6 @@ class DanishAudioApp(QMainWindow):
         self.word_input.setMinimumHeight(120)
         word_layout.addWidget(self.word_input)
         
-        # Load from file button
-        load_button = QPushButton("Load Words from File")
-        load_button.clicked.connect(self.load_from_file)
-        word_layout.addWidget(load_button)
-        
         word_group.setLayout(word_layout)
         layout.addWidget(word_group)
         
@@ -146,11 +141,6 @@ class DanishAudioApp(QMainWindow):
         
         # Save buttons layout
         save_buttons_layout = QHBoxLayout()
-        
-        # Save results as text button
-        save_results_button = QPushButton("Save Sentences as Text")
-        save_results_button.clicked.connect(self.save_sentence_results)
-        save_buttons_layout.addWidget(save_results_button)
         
         # Save results as CSV button
         save_csv_button = QPushButton("Save as Anki CSV")
@@ -240,21 +230,6 @@ class DanishAudioApp(QMainWindow):
         
         self.settings_tab.setLayout(layout)
         
-    def load_from_file(self):
-        """Load words from a text file."""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Open Word List File", "", "Text Files (*.txt);;All Files (*)"
-        )
-        
-        if file_path:
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    words = [line.strip() for line in f if line.strip()]
-                    self.word_input.setText("\n".join(words))
-                    self.log(f"Loaded {len(words)} words from {file_path}")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Error loading file: {str(e)}")
-    
     def browse_output_dir(self):
         """Browse for output directory."""
         dir_path = QFileDialog.getExistingDirectory(
@@ -457,26 +432,6 @@ class DanishAudioApp(QMainWindow):
         cursor.movePosition(QTextCursor.End)
         self.log_output.setTextCursor(cursor)
     
-    def save_sentence_results(self):
-        """Save the generated sentences to a file."""
-        if not self.sentence_results.toPlainText().strip():
-            QMessageBox.warning(self, "No Results", "No sentences to save.")
-            return
-        
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Sentence Results", "danish_example_sentences.txt", 
-            "Text Files (*.txt);;All Files (*)"
-        )
-        
-        if file_path:
-            try:
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write(self.sentence_results.toPlainText())
-                QMessageBox.information(self, "Saved", f"Results saved to {file_path}")
-                self.log(f"Sentence results saved to {file_path}")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Error saving file: {str(e)}")
-
     def save_sentence_results_csv(self):
         """Save the generated sentences to a CSV file."""
         if not self.sentence_results.toPlainText().strip():
