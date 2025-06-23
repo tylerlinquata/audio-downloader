@@ -104,7 +104,6 @@ class TestDanishAudioApp(unittest.TestCase):
         # Check default values
         self.assertTrue(self.main_window.output_dir_input.text().endswith("danish_pronunciations"))
         self.assertTrue("collection.media" in self.main_window.anki_dir_input.text())
-    
     @patch('danish_audio_downloader.gui.app.QFileDialog.getOpenFileName')
     def test_load_from_file(self, mock_file_dialog):
         """Test loading words from a file."""
@@ -399,7 +398,8 @@ class TestDanishAudioApp(unittest.TestCase):
                     # Check first card (Card Type 1 for 'hund')
                     self.assertIn('___', written_data[0][0])  # Should have blank
                     self.assertEqual(written_data[0][1], '<img src="myimage.jpg">')  # Image
-                    self.assertEqual(written_data[0][2], '')  # No definition for card 1
+                    self.assertTrue(isinstance(written_data[0][2], str) and written_data[0][2])  # Definition should not be empty
+                    self.assertIn('hund', written_data[0][2])  # Definition should contain the word
                     self.assertEqual(written_data[0][3], 'hund')  # Back word
                     self.assertEqual(written_data[0][4], 'Min hund elsker at lege i parken.')  # Full sentence
                     self.assertIn('[sound:hund.mp3]', written_data[0][5])  # Audio file
@@ -410,16 +410,17 @@ class TestDanishAudioApp(unittest.TestCase):
                     self.assertEqual(written_data[1][1], '<img src="myimage.jpg">')  # Image
                     self.assertIn('hund', written_data[1][2])  # Should have definition
                     self.assertEqual(written_data[1][3], '')  # No back word for card 2
-                    self.assertEqual(written_data[1][4], 'Hunden løb hurtigt efter bolden.')  # Full sentence
+                    self.assertEqual(written_data[1][4], 'Min hund elsker at lege i parken.')  # Full sentence (should match Card 1)
                     self.assertIn('[sound:hund.mp3]', written_data[1][5])  # Audio file
                     self.assertEqual(written_data[1][6], '')  # No make 2 cards
                     
                     # Check third card (Card Type 3 for 'hund')
                     self.assertIn('___', written_data[2][0])  # Should have blank
                     self.assertEqual(written_data[2][1], '<img src="myimage.jpg">')  # Image
-                    self.assertEqual(written_data[2][2], '')  # No definition for card 3
+                    self.assertTrue(isinstance(written_data[2][2], str) and written_data[2][2])  # Definition should not be empty
+                    self.assertIn('hund', written_data[2][2])  # Definition should contain the word
                     self.assertEqual(written_data[2][3], 'hund')  # Back word
-                    self.assertEqual(written_data[2][4], 'Vi har en stor, venlig hund.')  # Full sentence
+                    self.assertEqual(written_data[2][4], 'Hunden løb hurtigt efter bolden.')  # Full sentence (should match Card 2)
                     self.assertIn('[sound:hund.mp3]', written_data[2][5])  # Audio file
                     self.assertEqual(written_data[2][6], '')  # No make 2 cards
 

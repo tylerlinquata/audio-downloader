@@ -793,30 +793,30 @@ class DanishAudioApp(QMainWindow):
         
         # Card Type 1: Fill-in-the-blank + IPA
         sentence1_with_blank = remove_word_from_sentence(sentences[0], word, use_blank=True)
+        definition_text = self._format_definition(word, grammar_info)
+        grammar_details = self._format_grammar_details(grammar_info)
         ipa_info = grammar_info['ipa'] if grammar_info['ipa'] else f'/IPA_for_{word}/'
         if not ipa_info.startswith('/'):
             ipa_info = f'/{ipa_info}/'
         cards.append([
             sentence1_with_blank,                    # Front (Eksempel med ord fjernet eller blankt)
             '<img src="myimage.jpg">',               # Front (Billede)
-            '',                                      # Front (Definition, grundform, osv.) - empty for card 1
+            definition_text,                                      # Front (Definition, grundform, osv.) - empty for card 1
             word,                                    # Back (et enkelt ord/udtryk, uden kontekst)
             sentences[0],                            # - Hele sætningen (intakt)
-            f'{ipa_info} [sound:{word}.mp3]',        # - Ekstra info (IPA, køn, bøjning)
+            f'{ipa_info} {grammar_details} [sound:{word}.mp3]',        # - Ekstra info (IPA, køn, bøjning)
             'y'                                      # • Lav 2 kort?
         ])
         
         # Card Type 2: Fill-in-the-blank + definition
         sentence2_no_word = remove_word_from_sentence(sentences[1], word, use_blank=False)
-        definition_text = self._format_definition(word, grammar_info)
-        grammar_details = self._format_grammar_details(grammar_info)
         cards.append([
             sentence2_no_word,                       # Front (Eksempel med ord fjernet eller blankt)
             '<img src="myimage.jpg">',               # Front (Billede)
-            definition_text,                         # Front (Definition, grundform, osv.)
+            f'{word} {definition_text}',                         # Front (Definition, grundform, osv.)
             '',                                      # Back (et enkelt ord/udtryk, uden kontekst) - empty for card 2
-            sentences[1],                            # - Hele sætningen (intakt)
-            f'{grammar_details} [sound:{word}.mp3]', # - Ekstra info (IPA, køn, bøjning)
+            sentences[0],                            # - Hele sætningen (intakt)
+            f'{ipa_info} {grammar_details} [sound:{word}.mp3]', # - Ekstra info (IPA, køn, bøjning)
             ''                                       # • Lav 2 kort? - empty for card 2
         ])
         
@@ -825,10 +825,10 @@ class DanishAudioApp(QMainWindow):
         cards.append([
             sentence3_with_blank,                    # Front (Eksempel med ord fjernet eller blankt)
             '<img src="myimage.jpg">',               # Front (Billede)
-            '',                                      # Front (Definition, grundform, osv.) - empty for card 3
+            definition_text,                                      # Front (Definition, grundform, osv.) - empty for card 3
             word,                                    # Back (et enkelt ord/udtryk, uden kontekst)
-            sentences[2],                            # - Hele sætningen (intakt)
-            f'{grammar_details} [sound:{word}.mp3]', # - Ekstra info (IPA, køn, bøjning)
+            sentences[1],                            # - Hele sætningen (intakt)
+            f'{ipa_info} {grammar_details} [sound:{word}.mp3]', # - Ekstra info (IPA, køn, bøjning)
             ''                                       # • Lav 2 kort? - empty for card 3
         ])
         

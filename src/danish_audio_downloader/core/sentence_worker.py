@@ -47,10 +47,10 @@ class SentenceWorker(QThread):
 1. **Grammar Information (in Danish):**
    - IPA pronunciation (in slashes like /pronunciation/)
    - Word type in Danish (substantiv, verbum, adjektiv, etc.)
-   - If it's a noun: gender (en/et) and plural form
-   - If it's a verb: infinitive, present tense, past tense
+   - If it's a noun: gender (en/et) and plural forms
+   - If it's a verb: infinitive form and all conjugations
    - If it's an adjective: comparative and superlative forms
-   - A brief Danish definition or explanation
+   - A brief Danish definition
 
 2. **Example Sentences:**
    - Provide exactly 3 different example sentences using "{word}"
