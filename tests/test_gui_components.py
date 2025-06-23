@@ -48,51 +48,41 @@ class TestDanishAudioApp(unittest.TestCase):
     def test_window_initialization(self):
         """Test that the main window initializes correctly."""
         self.assertIsNotNone(self.main_window)
-        self.assertEqual(self.main_window.windowTitle(), "Danish Word Audio Downloader")
+        self.assertEqual(self.main_window.windowTitle(), "Danish Word Learning Assistant")
         self.assertTrue(self.main_window.minimumSize().width() >= 800)
         self.assertTrue(self.main_window.minimumSize().height() >= 600)
     
     def test_tabs_creation(self):
         """Test that all tabs are created correctly."""
-        # Should have 3 tabs: Download, Example Sentences, Settings
-        self.assertEqual(self.main_window.tabs.count(), 3)
+        # Should have 2 tabs: Process Words, Settings
+        self.assertEqual(self.main_window.tabs.count(), 2)
         
         # Check tab titles
         tab_titles = []
         for i in range(self.main_window.tabs.count()):
             tab_titles.append(self.main_window.tabs.tabText(i))
         
-        expected_titles = ["Download", "Example Sentences", "Settings"]
+        expected_titles = ["Process Words", "Settings"]
         self.assertEqual(tab_titles, expected_titles)
     
-    def test_download_tab_widgets(self):
-        """Test that download tab widgets are created correctly."""
+    def test_main_tab_widgets(self):
+        """Test that main tab widgets are created correctly."""
         # Check that essential widgets exist
         self.assertIsNotNone(self.main_window.word_input)
         self.assertIsNotNone(self.main_window.anki_checkbox)
-        self.assertIsNotNone(self.main_window.progress_bar)
+        self.assertIsNotNone(self.main_window.audio_progress_bar)
+        self.assertIsNotNone(self.main_window.sentence_progress_bar)
         self.assertIsNotNone(self.main_window.log_output)
-        self.assertIsNotNone(self.main_window.download_button)
+        self.assertIsNotNone(self.main_window.process_button)
         self.assertIsNotNone(self.main_window.cancel_button)
+        self.assertIsNotNone(self.main_window.cefr_combo)
+        self.assertIsNotNone(self.main_window.api_key_input)
+        self.assertIsNotNone(self.main_window.sentence_results)
         
         # Check initial states
         self.assertTrue(self.main_window.anki_checkbox.isChecked())
         self.assertFalse(self.main_window.cancel_button.isEnabled())
-    
-    def test_sentences_tab_widgets(self):
-        """Test that sentence generation tab widgets are created correctly."""
-        # Check that essential widgets exist
-        self.assertIsNotNone(self.main_window.sentence_word_input)
-        self.assertIsNotNone(self.main_window.cefr_combo)
-        self.assertIsNotNone(self.main_window.api_key_input)
-        self.assertIsNotNone(self.main_window.sentence_progress_bar)
-        self.assertIsNotNone(self.main_window.sentence_results)
-        self.assertIsNotNone(self.main_window.generate_button)
-        self.assertIsNotNone(self.main_window.cancel_sentence_button)
-        
-        # Check initial states
         self.assertEqual(self.main_window.cefr_combo.currentText(), "B1")
-        self.assertFalse(self.main_window.cancel_sentence_button.isEnabled())
     
     def test_settings_tab_widgets(self):
         """Test that settings tab widgets are created correctly."""
@@ -188,44 +178,65 @@ class TestDanishAudioApp(unittest.TestCase):
         self.assertEqual(self.main_window.api_key_input.text(), test_api_key)
     
     @patch('danish_audio_downloader.gui.app.QMessageBox.warning')
-    def test_start_download_no_words(self, mock_warning):
-        """Test starting download with no words."""
+    def test_start_processing_no_words(self, mock_warning):
+        """Test starting processing with no words."""
         # Clear the word input
         self.main_window.word_input.clear()
         
-        self.main_window.start_download()
+        self.main_window.start_processing()
         
         # Should show warning
         mock_warning.assert_called_once()
     
+    @patch('danish_audio_downloader.gui.app.QMessageBox.warning')
+    def test_start_processing_no_api_key(self, mock_warning):
+        """Test starting processing with no API key."""
+        # Set up test words but no API key
+        self.main_window.word_input.setPlainText("hund\nkat\nhus")
+        self.main_window.api_key_input.clear()
+        
+        self.main_window.start_processing()
+        
+        # Should show warning about missing API key
+        mock_warning.assert_called_once()
+    
     @patch('danish_audio_downloader.gui.app.Worker')
     @patch('os.makedirs')
-    def test_start_download_success(self, mock_makedirs, mock_worker_class):
-        """Test successful start of download process."""
-        # Set up test words
+    def test_start_processing_success(self, mock_makedirs, mock_worker_class):
+        """Test successful start of unified processing."""
+        # Set up test words and API key
         self.main_window.word_input.setPlainText("hund\nkat\nhus")
+        self.main_window.api_key_input.setText("test-api-key")
         
         # Mock worker
         mock_worker = Mock()
         mock_worker_class.return_value = mock_worker
         
-        self.main_window.start_download()
+        self.main_window.start_processing()
         
         # Check that worker was created and started
         mock_worker_class.assert_called_once()
         mock_worker.start.assert_called_once()
         
         # Check UI state changes
-        self.assertFalse(self.main_window.download_button.isEnabled())
+        self.assertFalse(self.main_window.process_button.isEnabled())
         self.assertTrue(self.main_window.cancel_button.isEnabled())
     
-    def test_update_progress(self):
-        """Test progress bar update."""
-        self.main_window.update_progress(3, 10)
-        self.assertEqual(self.main_window.progress_bar.value(), 30)
+    def test_update_audio_progress(self):
+        """Test audio progress bar update."""
+        self.main_window.update_audio_progress(3, 10)
+        self.assertEqual(self.main_window.audio_progress_bar.value(), 30)
         
-        self.main_window.update_progress(10, 10)
-        self.assertEqual(self.main_window.progress_bar.value(), 100)
+        self.main_window.update_audio_progress(10, 10)
+        self.assertEqual(self.main_window.audio_progress_bar.value(), 100)
+    
+    def test_update_sentence_progress(self):
+        """Test sentence progress bar update."""
+        self.main_window.update_sentence_progress(3, 10)
+        self.assertEqual(self.main_window.sentence_progress_bar.value(), 30)
+        
+        self.main_window.update_sentence_progress(10, 10)
+        self.assertEqual(self.main_window.sentence_progress_bar.value(), 100)
     
     def test_log_message(self):
         """Test logging a message."""
@@ -238,60 +249,41 @@ class TestDanishAudioApp(unittest.TestCase):
         self.assertIn(test_message, final_text)
         self.assertNotEqual(initial_text, final_text)
     
-    def test_download_finished(self):
-        """Test download finished callback."""
+    def test_audio_download_finished(self):
+        """Test audio download finished callback and transition to sentence generation."""
         successful = ["hund", "kat"]
         failed = ["invalidword"]
         
+        # Mock the sentence generation phase
+        with patch.object(self.main_window, 'start_sentence_generation_phase') as mock_start_sentences:
+            self.main_window.audio_download_finished(successful, failed)
+        
+        # Check that sentence generation phase is started
+        mock_start_sentences.assert_called_once()
+    
+    def test_unified_processing_finished(self):
+        """Test unified processing finished callback."""
+        test_results = "**hund**\n\n1. Hunden løber hurtigt. - The dog runs fast.\n\n---"
+        
+        # Set up pending sentence generation data that would be set during processing
+        self.main_window.pending_sentence_generation = {
+            'words': ['hund', 'kat'],
+            'api_key': 'test-key',
+            'cefr_level': 'B1'
+        }
+        
         with patch('danish_audio_downloader.gui.app.QMessageBox.information') as mock_info:
-            self.main_window.download_finished(successful, failed)
+            self.main_window.unified_processing_finished(test_results)
         
         # Check that message box was shown
         mock_info.assert_called_once()
         
         # Check UI state reset
-        self.assertTrue(self.main_window.download_button.isEnabled())
+        self.assertTrue(self.main_window.process_button.isEnabled())
         self.assertFalse(self.main_window.cancel_button.isEnabled())
-    
-    @patch('danish_audio_downloader.gui.app.QMessageBox.warning')
-    def test_start_sentence_generation_no_words(self, mock_warning):
-        """Test starting sentence generation with no words."""
-        # Clear the sentence word input
-        self.main_window.sentence_word_input.clear()
-        
-        self.main_window.start_sentence_generation()
-        
-        # Should show warning
-        mock_warning.assert_called_once()
-    
-    @patch('danish_audio_downloader.gui.app.QMessageBox.warning')
-    def test_start_sentence_generation_no_api_key(self, mock_warning):
-        """Test starting sentence generation with no API key."""
-        # Set words but no API key
-        self.main_window.sentence_word_input.setPlainText("hund\nkat")
-        self.main_window.api_key_input.clear()
-        
-        self.main_window.start_sentence_generation()
-        
-        # Should show warning
-        mock_warning.assert_called_once()
-    
-    def test_sentence_generation_finished(self):
-        """Test sentence generation finished callback."""
-        test_results = "**hund**\n\nExample sentences for hund..."
-        
-        with patch('danish_audio_downloader.gui.app.QMessageBox.information') as mock_info:
-            self.main_window.sentence_generation_finished(test_results)
         
         # Check that results were set
         self.assertEqual(self.main_window.sentence_results.toPlainText(), test_results)
-        
-        # Check that message box was shown
-        mock_info.assert_called_once()
-        
-        # Check UI state reset
-        self.assertTrue(self.main_window.generate_button.isEnabled())
-        self.assertFalse(self.main_window.cancel_sentence_button.isEnabled())
     
     @patch('danish_audio_downloader.gui.app.QFileDialog.getSaveFileName')
     @patch('danish_audio_downloader.gui.app.QMessageBox.warning')

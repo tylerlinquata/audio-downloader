@@ -1,19 +1,21 @@
-# Danish Word Audio Downloader
+# Danish Word Learning Assistant
 
 A Python application for downloading Danish word pronunciations from ordnet.dk and saving them to your Anki collection. Features a modern, modular architecture following Python best practices.
 
 ## Features
 
-- **Clean GUI Interface** - Intuitive tabbed interface for different functions
-- **Audio Downloads** - Download audio for multiple Danish words from ordnet.dk
+- **Unified Processing Workflow** - Single interface that automatically handles both audio downloads and sentence generation
+- **Clean GUI Interface** - Streamlined two-tab interface for processing and settings
+- **Audio Downloads** - Download audio for multiple Danish words from ordnet.dk with validation
 - **AI-Powered Sentence Generation** - Generate context-appropriate sentences using ChatGPT with CEFR level targeting
 - **Comprehensive Grammar Integration** - Automatically extract IPA pronunciation, word types, gender, and inflections
 - **Advanced Anki Integration** - Export sentences as Anki-ready CSV files with multiple card types per word
 - **Intelligent Word Processing** - Smart detection and handling of Danish inflected forms
+- **Dual Progress Tracking** - Separate progress bars for audio downloads and sentence generation phases
 - **Multiple Export Formats** - Save sentences as formatted text or structured CSV files
 - **Audio Validation** - Automatically validates downloaded files to ensure they're correct
 - **Anki Media Integration** - Saves files locally and optionally copies them to your Anki media collection
-- **Progress Tracking** - Real-time progress updates and detailed logging
+- **Detailed Logging** - Real-time updates and comprehensive logging for both processing phases
 - **Settings Management** - Persistent settings for directories, API keys, and preferences
 
 ## Project Structure
@@ -94,29 +96,28 @@ src/
 
 ## Usage
 
-### Audio Download
-1. Launch the application and go to the "Download" tab
-2. Enter Danish words (one per line) or load them from a text file
-3. Configure output directory and Anki media folder in the "Settings" tab
-4. Check "Copy to Anki Media Folder" if you want automatic Anki integration
-5. Click "Start Download" to begin
-6. Monitor progress in the log area
+### Unified Word Processing
+The application now combines audio downloads and sentence generation into a single streamlined workflow:
 
-### Example Sentences Generation
-1. Go to the "Example Sentences" tab
-2. Enter Danish words (one per line) or load them from a file
-3. Select your CEFR level (A1-C2) for appropriate difficulty
-4. Enter your OpenAI API key (save it in Settings for convenience)
-5. Click "Generate Example Sentences"
-6. Save the results in your preferred format:
-   - **Text File**: Save as formatted text with markdown-style formatting
-   - **CSV File**: Save as structured CSV for Anki import with three card types per word:
-     * **Card Type 1**: Fill-in-the-blank with IPA pronunciation
-     * **Card Type 2**: Word removed from sentence with definition provided
-     * **Card Type 3**: Different sentence with fill-in-the-blank format
+1. Launch the application and go to the "Process Words" tab
+2. Enter Danish words (one per line) or load them from a text file using the "Load from File" button
+3. Configure your settings:
+   - **Output Directory**: Where audio files will be saved
+   - **Copy to Anki Media Folder**: Check this to automatically copy audio files to Anki
+   - **CEFR Level**: Select A1-C2 for appropriate sentence difficulty
+   - **OpenAI API Key**: Required for sentence generation (save in Settings for convenience)
+4. Click "Process Words" to start the unified workflow
+5. **Phase 1**: Audio files are downloaded first with progress tracking
+6. **Phase 2**: Example sentences are automatically generated after audio completion
+7. Monitor progress with dual progress bars and detailed logging
+8. Save the generated sentences in your preferred format:
+   - **Text File**: Formatted text with markdown-style formatting
+   - **CSV File**: Structured CSV for Anki import with three card types per word
 
-#### Enhanced Grammar Integration
-The app now requests comprehensive grammar information from ChatGPT for each word in Danish:
+### Advanced Features
+
+#### Comprehensive Grammar Integration
+The app requests detailed grammar information from ChatGPT for each word in Danish:
 - **IPA Pronunciation**: Actual Danish IPA transcription in slashes (e.g., `/hun/`)
 - **Word Type**: Danish word types (substantiv, verbum, adjektiv, etc.)
 - **Gender**: `en` or `et` for Danish nouns
@@ -137,11 +138,15 @@ The CSV export creates Anki-ready cards with these columns populated with real g
 All card content uses Danish labels and fallback text (e.g., "Definition nødvendig", "Grammatik info nødvendig") to maintain language consistency.
 
 ### Settings Configuration
+The application provides a dedicated Settings tab for configuration:
+
 1. Go to the "Settings" tab
-2. Set your preferred output directory
-3. Configure your Anki media folder path
-4. Save your OpenAI API key for sentence generation
-5. Click "Save Settings" to persist your configuration
+2. **Output Directory**: Set where audio files and failed word lists are saved
+3. **Anki Media Folder**: Configure the path to your Anki collection's media folder
+4. **OpenAI API Key**: Save your API key for sentence generation (securely stored)
+5. Click "Save Settings" to persist your configuration across sessions
+
+The unified workflow uses these settings automatically, eliminating the need to configure them separately for each phase.
 
 ## Development
 
