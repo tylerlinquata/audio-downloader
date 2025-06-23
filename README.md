@@ -1,4 +1,17 @@
-# I didn't write any of the code in this repository
+# I didn't write any ### Method 1: Run the Python script directly
+
+1. Make sure you have Python 3.x installed
+2. Install the required packages:
+   ```
+   pip install -r requirements.txt
+   ```
+   Or manually:
+   ```
+   pip install PyQt5 requests beautifulsoup4 openai
+   ```all the required packages:
+   ```
+   pip install PyQt5 requests beautifulsoup4 openai
+   ```he code in this repository
 
 
 # Danish Word Audio Downloader
@@ -9,6 +22,7 @@ A macOS application for downloading Danish word pronunciations from ordnet.dk an
 
 - Simple GUI interface
 - Download audio for multiple Danish words from ordnet.dk
+- Generate example sentences for Danish words using ChatGPT with CEFR level targeting
 - Automatically validates audio files to ensure they're correct
 - Saves files to a local folder and optionally copies them to your Anki media collection
 - Keeps track of failed downloads
@@ -31,7 +45,11 @@ A macOS application for downloading Danish word pronunciations from ordnet.dk an
 
 1. Install the required packages:
    ```
-   pip install PyQt5 requests beautifulsoup4 py2app
+   pip install -r requirements.txt
+   ```
+   Or manually:
+   ```
+   pip install PyQt5 requests beautifulsoup4 openai py2app
    ```
 2. Build the app:
    ```
@@ -42,17 +60,28 @@ A macOS application for downloading Danish word pronunciations from ordnet.dk an
 
 ## Usage
 
+### Audio Download
 1. Enter Danish words in the text area (one word per line) or load them from a file
 2. Configure the output directory and Anki media folder in the Settings tab
 3. Check or uncheck the "Copy to Anki Media Folder" option as needed
 4. Click "Start Download" to begin downloading audio files
 5. View the progress in the log area
 
+### Example Sentences Generation
+1. Go to the "Example Sentences" tab
+2. Enter Danish words in the text area (one word per line) or load them from a file
+3. Select your CEFR level (A1, A2, B1, B2, C1, C2) from the dropdown
+4. Enter your OpenAI API key (you can save it in the Settings tab)
+5. Click "Generate Example Sentences" to create context-appropriate sentences
+6. Save the results to a file when complete
+
 ## Notes
 
 - If a word fails to download, it will be added to a list of failed words
 - Failed words will be saved to `failed_words.txt` in the output directory
 - The application will remember your settings between runs
+- For the example sentences feature, you'll need an OpenAI API key
+- Generated sentences are tailored to your selected CEFR level for appropriate difficulty
 
 ## Troubleshooting
 

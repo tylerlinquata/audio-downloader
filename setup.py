@@ -19,7 +19,7 @@ OPTIONS = {
         'NSHumanReadableCopyright': '© 2025 Tyler Linquata',
         'NSHighResolutionCapable': True,
     },
-    'packages': ['PyQt5', 'requests', 'bs4'],
+    'packages': ['PyQt5', 'requests', 'bs4', 'openai'],
 }
 
 setup(

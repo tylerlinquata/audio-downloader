@@ -18,9 +18,11 @@ from bs4 import BeautifulSoup
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                             QHBoxLayout, QLabel, QPushButton, QTextEdit, 
                             QFileDialog, QProgressBar, QCheckBox, QMessageBox,
-                            QLineEdit, QGroupBox, QFormLayout, QTabWidget)
+                            QLineEdit, QGroupBox, QFormLayout, QTabWidget,
+                            QComboBox, QSplitter)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSettings
 from PyQt5.QtGui import QIcon, QFont, QTextCursor
+import openai
 
 class Worker(QThread):
     """Worker thread for downloading audio files."""
@@ -289,6 +291,86 @@ class DanishAudioDownloader:
             return False
 
 
+class SentenceWorker(QThread):
+    """Worker thread for generating example sentences using ChatGPT."""
+    update_signal = pyqtSignal(str)
+    progress_signal = pyqtSignal(int, int)  # current, total
+    finished_signal = pyqtSignal(str)  # generated sentences
+    error_signal = pyqtSignal(str)  # error message
+
+    def __init__(self, words, cefr_level, api_key):
+        super().__init__()
+        self.words = words
+        self.cefr_level = cefr_level
+        self.api_key = api_key
+        self.abort_flag = False
+
+    def run(self):
+        """Run the sentence generation process."""
+        try:
+            # Set up OpenAI client
+            openai.api_key = self.api_key
+            client = openai.OpenAI(api_key=self.api_key)
+            
+            all_sentences = []
+            total_words = len(self.words)
+            
+            for i, word in enumerate(self.words):
+                if self.abort_flag:
+                    break
+                    
+                self.update_signal.emit(f"Generating sentences for: {word}")
+                self.progress_signal.emit(i + 1, total_words)
+                
+                # Create the prompt
+                prompt = f"""Give me some example sentences for "{word}" in Danish, and give me translations for each sentence. Please make sure that you're pulling these examples from sources that aren't likely to be incorrect or machine-translated; it's better to give me a few correct sentences than a lot of sentences where some may be incorrect. Make sure the sentences are appropriate for a {self.cefr_level} learner.
+
+Format your response like this:
+**{word}**
+
+**Example Sentences:**
+1. [Danish sentence] - [English translation]
+2. [Danish sentence] - [English translation]
+3. [Danish sentence] - [English translation]
+
+---"""
+                
+                try:
+                    # Make API call
+                    response = client.chat.completions.create(
+                        model="gpt-3.5-turbo",
+                        messages=[
+                            {"role": "system", "content": "You are a helpful Danish language teacher who provides accurate example sentences and usage tips for Danish words."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        max_tokens=800,
+                        temperature=0.7
+                    )
+                    
+                    sentence_content = response.choices[0].message.content
+                    all_sentences.append(sentence_content)
+                    
+                    # Add a small delay to respect rate limits
+                    time.sleep(1)
+                    
+                except Exception as e:
+                    error_msg = f"Error generating sentences for '{word}': {str(e)}"
+                    self.update_signal.emit(error_msg)
+                    all_sentences.append(f"**{word}**\n\nError: Could not generate sentences for this word.\n\n---")
+            
+            if not self.abort_flag:
+                final_result = "\n\n".join(all_sentences)
+                self.finished_signal.emit(final_result)
+            
+        except Exception as e:
+            self.error_signal.emit(f"Failed to initialize OpenAI: {str(e)}")
+
+    def abort(self):
+        """Abort the sentence generation process."""
+        self.abort_flag = True
+        self.update_signal.emit("Aborting sentence generation...")
+
+
 class DanishAudioApp(QMainWindow):
     """Main application window for Danish Audio Downloader."""
     
@@ -304,6 +386,7 @@ class DanishAudioApp(QMainWindow):
         
         # Initialize member variables
         self.worker = None
+        self.sentence_worker = None
         
     def init_ui(self):
         """Initialize the user interface."""
@@ -318,12 +401,19 @@ class DanishAudioApp(QMainWindow):
         self.download_tab = QWidget()
         self.tabs.addTab(self.download_tab, "Download")
         
+        # Create the sentence generation tab
+        self.sentences_tab = QWidget()
+        self.tabs.addTab(self.sentences_tab, "Example Sentences")
+        
         # Create the settings tab
         self.settings_tab = QWidget()
         self.tabs.addTab(self.settings_tab, "Settings")
         
         # Set up the download tab
         self.setup_download_tab()
+        
+        # Set up the sentence generation tab
+        self.setup_sentences_tab()
         
         # Set up the settings tab
         self.setup_settings_tab()
@@ -398,6 +488,103 @@ class DanishAudioApp(QMainWindow):
         
         self.download_tab.setLayout(layout)
         
+    def setup_sentences_tab(self):
+        """Set up the sentence generation tab UI."""
+        layout = QVBoxLayout()
+        
+        # Word input area
+        word_group = QGroupBox("Words for Example Sentences")
+        word_layout = QVBoxLayout()
+        
+        # Text area for words
+        self.sentence_word_input = QTextEdit()
+        self.sentence_word_input.setPlaceholderText("Enter Danish words, one per line")
+        self.sentence_word_input.setMaximumHeight(150)
+        word_layout.addWidget(self.sentence_word_input)
+        
+        # Load from file button
+        load_sentence_button = QPushButton("Load from File")
+        load_sentence_button.clicked.connect(self.load_sentence_words_from_file)
+        word_layout.addWidget(load_sentence_button)
+        
+        word_group.setLayout(word_layout)
+        layout.addWidget(word_group)
+        
+        # Settings group
+        settings_group = QGroupBox("Settings")
+        settings_layout = QFormLayout()
+        
+        # CEFR Level dropdown
+        self.cefr_combo = QComboBox()
+        self.cefr_combo.addItems(["A1", "A2", "B1", "B2", "C1", "C2"])
+        self.cefr_combo.setCurrentText("B1")
+        settings_layout.addRow("CEFR Level:", self.cefr_combo)
+        
+        # OpenAI API Key input
+        self.api_key_input = QLineEdit()
+        self.api_key_input.setEchoMode(QLineEdit.Password)
+        self.api_key_input.setPlaceholderText("Enter your OpenAI API key (get one at platform.openai.com)")
+        settings_layout.addRow("OpenAI API Key:", self.api_key_input)
+        
+        settings_group.setLayout(settings_layout)
+        layout.addWidget(settings_group)
+        
+        # Progress area
+        progress_group = QGroupBox("Progress")
+        progress_layout = QVBoxLayout()
+        
+        # Progress bar
+        self.sentence_progress_bar = QProgressBar()
+        self.sentence_progress_bar.setValue(0)
+        progress_layout.addWidget(self.sentence_progress_bar)
+        
+        # Log area
+        self.sentence_log_output = QTextEdit()
+        self.sentence_log_output.setReadOnly(True)
+        self.sentence_log_output.setFont(QFont("Courier New", 10))
+        self.sentence_log_output.setMaximumHeight(100)
+        progress_layout.addWidget(self.sentence_log_output)
+        
+        progress_group.setLayout(progress_layout)
+        layout.addWidget(progress_group)
+        
+        # Results area
+        results_group = QGroupBox("Generated Example Sentences")
+        results_layout = QVBoxLayout()
+        
+        # Results text area (larger and more readable)
+        self.sentence_results = QTextEdit()
+        self.sentence_results.setReadOnly(True)
+        self.sentence_results.setFont(QFont("Georgia", 12))
+        self.sentence_results.setMinimumHeight(300)
+        results_layout.addWidget(self.sentence_results)
+        
+        # Save results button
+        save_results_button = QPushButton("Save Results to File")
+        save_results_button.clicked.connect(self.save_sentence_results)
+        results_layout.addWidget(save_results_button)
+        
+        results_group.setLayout(results_layout)
+        layout.addWidget(results_group)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        
+        # Generate button
+        self.generate_button = QPushButton("Generate Example Sentences")
+        self.generate_button.clicked.connect(self.start_sentence_generation)
+        button_layout.addWidget(self.generate_button)
+        
+        # Cancel button
+        self.cancel_sentence_button = QPushButton("Cancel")
+        self.cancel_sentence_button.clicked.connect(self.cancel_sentence_generation)
+        self.cancel_sentence_button.setEnabled(False)
+        button_layout.addWidget(self.cancel_sentence_button)
+        
+        layout.addLayout(button_layout)
+        
+        self.sentences_tab.setLayout(layout)
+        
     def setup_settings_tab(self):
         """Set up the settings tab UI."""
         layout = QVBoxLayout()
@@ -434,6 +621,19 @@ class DanishAudioApp(QMainWindow):
         folders_group.setLayout(folders_layout)
         layout.addWidget(folders_group)
         
+        # API settings
+        api_group = QGroupBox("API Settings")
+        api_layout = QFormLayout()
+        
+        # OpenAI API Key
+        self.settings_api_key_input = QLineEdit()
+        self.settings_api_key_input.setEchoMode(QLineEdit.Password)
+        self.settings_api_key_input.setPlaceholderText("Enter your OpenAI API key")
+        api_layout.addRow("OpenAI API Key:", self.settings_api_key_input)
+        
+        api_group.setLayout(api_layout)
+        layout.addWidget(api_group)
+        
         # Save settings button
         save_button = QPushButton("Save Settings")
         save_button.clicked.connect(self.save_settings)
@@ -459,6 +659,21 @@ class DanishAudioApp(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Error loading file: {str(e)}")
     
+    def load_sentence_words_from_file(self):
+        """Load words from a text file for sentence generation."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Open Word List File", "", "Text Files (*.txt);;All Files (*)"
+        )
+        
+        if file_path:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    words = [line.strip() for line in f if line.strip()]
+                    self.sentence_word_input.setText("\n".join(words))
+                    self.sentence_log(f"Loaded {len(words)} words from {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error loading file: {str(e)}")
+    
     def browse_output_dir(self):
         """Browse for output directory."""
         dir_path = QFileDialog.getExistingDirectory(
@@ -481,6 +696,11 @@ class DanishAudioApp(QMainWindow):
         """Save settings to QSettings."""
         self.settings.setValue("output_dir", self.output_dir_input.text())
         self.settings.setValue("anki_dir", self.anki_dir_input.text())
+        self.settings.setValue("openai_api_key", self.settings_api_key_input.text())
+        
+        # Also update the sentence tab API key if it's empty
+        if not self.api_key_input.text().strip():
+            self.api_key_input.setText(self.settings_api_key_input.text())
         
         QMessageBox.information(self, "Settings Saved", "Settings have been saved.")
     
@@ -488,12 +708,17 @@ class DanishAudioApp(QMainWindow):
         """Load settings from QSettings."""
         output_dir = self.settings.value("output_dir")
         anki_dir = self.settings.value("anki_dir")
+        api_key = self.settings.value("openai_api_key")
         
         if output_dir:
             self.output_dir_input.setText(output_dir)
         
         if anki_dir:
             self.anki_dir_input.setText(anki_dir)
+            
+        if api_key:
+            self.settings_api_key_input.setText(api_key)
+            self.api_key_input.setText(api_key)
     
     def start_download(self):
         """Start the download process."""
@@ -587,6 +812,112 @@ class DanishAudioApp(QMainWindow):
         cursor = self.log_output.textCursor()
         cursor.movePosition(QTextCursor.End)
         self.log_output.setTextCursor(cursor)
+    
+    def start_sentence_generation(self):
+        """Start the sentence generation process."""
+        # Get the list of words from the sentence word input
+        word_text = self.sentence_word_input.toPlainText().strip()
+        if not word_text:
+            QMessageBox.warning(self, "No Words", "Please enter words for sentence generation.")
+            return
+            
+        words = [line.strip() for line in word_text.split('\n') if line.strip()]
+        
+        # Get API key
+        api_key = self.api_key_input.text().strip()
+        if not api_key:
+            QMessageBox.warning(self, "No API Key", "Please enter your OpenAI API key.")
+            return
+        
+        # Get CEFR level
+        cefr_level = self.cefr_combo.currentText()
+        
+        # Clear results
+        self.sentence_results.clear()
+        
+        # Create and start the worker thread
+        self.sentence_worker = SentenceWorker(words, cefr_level, api_key)
+        self.sentence_worker.update_signal.connect(self.sentence_log)
+        self.sentence_worker.progress_signal.connect(self.update_sentence_progress)
+        self.sentence_worker.finished_signal.connect(self.sentence_generation_finished)
+        self.sentence_worker.error_signal.connect(self.sentence_generation_error)
+        self.sentence_worker.start()
+        
+        # Update UI
+        self.generate_button.setEnabled(False)
+        self.cancel_sentence_button.setEnabled(True)
+        self.sentence_progress_bar.setValue(0)
+        self.sentence_log("Starting sentence generation...")
+    
+    def cancel_sentence_generation(self):
+        """Cancel the sentence generation process."""
+        if hasattr(self, 'sentence_worker') and self.sentence_worker.isRunning():
+            self.sentence_worker.abort()
+            self.sentence_worker.wait()
+            self.sentence_log("Sentence generation aborted.")
+            
+            # Update UI
+            self.generate_button.setEnabled(True)
+            self.cancel_sentence_button.setEnabled(False)
+    
+    def sentence_generation_finished(self, results):
+        """Handle the completion of the sentence generation process."""
+        self.sentence_results.setText(results)
+        self.sentence_log("Sentence generation completed!")
+        
+        # Update UI
+        self.generate_button.setEnabled(True)
+        self.cancel_sentence_button.setEnabled(False)
+        
+        # Show message box
+        word_count = len([line.strip() for line in self.sentence_word_input.toPlainText().split('\n') if line.strip()])
+        QMessageBox.information(
+            self, 
+            "Generation Complete", 
+            f"Generated example sentences for {word_count} words."
+        )
+    
+    def sentence_generation_error(self, error_msg):
+        """Handle errors in sentence generation."""
+        self.sentence_log(f"Error: {error_msg}")
+        QMessageBox.critical(self, "Error", error_msg)
+        
+        # Update UI
+        self.generate_button.setEnabled(True)
+        self.cancel_sentence_button.setEnabled(False)
+    
+    def update_sentence_progress(self, current, total):
+        """Update the sentence generation progress bar."""
+        percentage = int((current / total) * 100) if total > 0 else 0
+        self.sentence_progress_bar.setValue(percentage)
+    
+    def sentence_log(self, message):
+        """Log a message to the sentence generation log area."""
+        self.sentence_log_output.append(message)
+        # Scroll to the bottom
+        cursor = self.sentence_log_output.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        self.sentence_log_output.setTextCursor(cursor)
+    
+    def save_sentence_results(self):
+        """Save the generated sentences to a file."""
+        if not self.sentence_results.toPlainText().strip():
+            QMessageBox.warning(self, "No Results", "No sentences to save.")
+            return
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Sentence Results", "danish_example_sentences.txt", 
+            "Text Files (*.txt);;All Files (*)"
+        )
+        
+        if file_path:
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(self.sentence_results.toPlainText())
+                QMessageBox.information(self, "Saved", f"Results saved to {file_path}")
+                self.sentence_log(f"Results saved to {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error saving file: {str(e)}")
 
 
 if __name__ == "__main__":
