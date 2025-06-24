@@ -273,7 +273,7 @@ class DanishAudioApp(QMainWindow):
         header_layout.addWidget(instructions)
         
         header_group.setLayout(header_layout)
-        layout.addWidget(header_group)
+        # layout.addWidget(header_group)
         
         # Card table
         table_group = QGroupBox("Generated Cards")
