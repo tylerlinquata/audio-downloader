@@ -10,7 +10,8 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QLabel, QPushButton, QTextEdit, 
                             QFileDialog, QProgressBar, QCheckBox, QMessageBox,
                             QLineEdit, QGroupBox, QFormLayout, QTabWidget,
-                            QComboBox, QSplitter)
+                            QComboBox, QSplitter, QTableWidget, QTableWidgetItem,
+                            QHeaderView, QAbstractItemView, QFrame)
 from PyQt5.QtCore import Qt, QSettings
 from PyQt5.QtGui import QIcon, QFont, QTextCursor
 
@@ -37,6 +38,7 @@ class DanishAudioApp(QMainWindow):
         self.sentence_worker = None
         self.image_worker = None
         self.word_image_urls = {}  # Store image URLs for CSV export
+        self.generated_cards = []  # Store generated cards for review
         
         # Set initial button state
         self.update_button_state("idle")
@@ -58,11 +60,18 @@ class DanishAudioApp(QMainWindow):
         self.settings_tab = QWidget()
         self.tabs.addTab(self.settings_tab, "Settings")
         
+        # Create the card review tab
+        self.review_tab = QWidget()
+        self.tabs.addTab(self.review_tab, "Review Cards")
+        
         # Set up the main tab
         self.setup_main_tab()
         
         # Set up the settings tab
         self.setup_settings_tab()
+        
+        # Set up the review tab
+        self.setup_review_tab()
         
     def setup_main_tab(self):
         """Set up the main processing tab UI."""
@@ -219,6 +228,282 @@ class DanishAudioApp(QMainWindow):
         
         self.settings_tab.setLayout(layout)
         
+    def setup_review_tab(self):
+        """Set up the card review tab UI."""
+        layout = QVBoxLayout()
+        
+        # Header with instructions
+        header_group = QGroupBox("Review & Edit Flashcards")
+        header_layout = QVBoxLayout()
+        
+        instructions = QLabel(
+            "Review and edit your generated flashcards below. You can modify any field or uncheck cards you don't want to include.\n"
+            "Cards are generated in sets of 3 for each word: Fill-in-blank, Definition, and Additional sentence."
+        )
+        instructions.setWordWrap(True)
+        instructions.setStyleSheet("QLabel { padding: 10px; background-color: #f0f8ff; border: 1px solid #d0d0d0; border-radius: 5px; }")
+        header_layout.addWidget(instructions)
+        
+        header_group.setLayout(header_layout)
+        layout.addWidget(header_group)
+        
+        # Card table
+        table_group = QGroupBox("Generated Cards")
+        table_layout = QVBoxLayout()
+        
+        self.card_table = QTableWidget()
+        self.card_table.setColumnCount(8)  # Include checkbox column
+        headers = [
+            "Include", "Front (Example)", "Front (Image)", "Front (Definition)", 
+            "Back (Word)", "Full Sentence", "Grammar Info", "Make 2 Cards"
+        ]
+        self.card_table.setHorizontalHeaderLabels(headers)
+        
+        # Configure table appearance
+        self.card_table.horizontalHeader().setStretchLastSection(False)
+        self.card_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Include checkbox
+        self.card_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)  # Front example
+        self.card_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Image
+        self.card_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)  # Definition
+        self.card_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)  # Back word
+        self.card_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)  # Full sentence
+        self.card_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Stretch)  # Grammar
+        self.card_table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeToContents)  # Make 2 cards
+        
+        self.card_table.setAlternatingRowColors(True)
+        self.card_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.card_table.verticalHeader().setVisible(False)
+        self.card_table.setMinimumHeight(400)  # Give more space for the table
+        
+        # Add row height for better readability
+        self.card_table.verticalHeader().setDefaultSectionSize(60)
+        
+        table_layout.addWidget(self.card_table)
+        
+        # Add status label
+        self.card_status_label = QLabel("No cards loaded")
+        self.card_status_label.setStyleSheet("QLabel { padding: 5px; font-weight: bold; }")
+        table_layout.addWidget(self.card_status_label)
+        
+        table_group.setLayout(table_layout)
+        layout.addWidget(table_group)
+        
+        # Action buttons
+        button_layout = QHBoxLayout()
+        
+        # Select/Deselect buttons
+        select_all_btn = QPushButton("Select All Cards")
+        select_all_btn.clicked.connect(self.select_all_cards)
+        button_layout.addWidget(select_all_btn)
+        
+        deselect_all_btn = QPushButton("Deselect All Cards")
+        deselect_all_btn.clicked.connect(self.deselect_all_cards)
+        button_layout.addWidget(deselect_all_btn)
+        
+        button_layout.addStretch()
+        
+        # Navigation buttons
+        back_to_process_btn = QPushButton("← Back to Processing")
+        back_to_process_btn.clicked.connect(self.back_to_processing)
+        button_layout.addWidget(back_to_process_btn)
+        
+        self.export_csv_btn = QPushButton("Export Selected Cards to CSV")
+        self.export_csv_btn.clicked.connect(self.export_reviewed_cards_to_csv)
+        self.export_csv_btn.setStyleSheet("QPushButton { font-weight: bold; padding: 10px; background-color: #4CAF50; color: white; }")
+        button_layout.addWidget(self.export_csv_btn)
+        
+        layout.addLayout(button_layout)
+        
+        self.review_tab.setLayout(layout)
+        
+        # Initially disable the review tab
+        self.tabs.setTabEnabled(2, False)  # Review tab is index 2
+    
+    def populate_card_review_table(self, cards_data):
+        """Populate the review table with generated cards."""
+        self.generated_cards = cards_data
+        self.card_table.setRowCount(len(cards_data))
+        
+        for row, card in enumerate(cards_data):
+            # Include checkbox
+            checkbox = QCheckBox()
+            checkbox.setChecked(True)  # Default to selected
+            checkbox.stateChanged.connect(self.update_card_status)  # Connect to status update
+            self.card_table.setCellWidget(row, 0, checkbox)
+            
+            # Populate card data (indices match the card structure)
+            for col, value in enumerate(card, 1):
+                item = QTableWidgetItem(str(value))
+                item.setFlags(item.flags() | Qt.ItemIsEditable)  # Make cells editable
+                # Enable word wrap for better readability of long text
+                if col in [1, 3, 5, 6]:  # Example, Definition, Full Sentence, Grammar columns
+                    item.setToolTip(str(value))  # Show full text in tooltip
+                self.card_table.setItem(row, col, item)
+        
+        # Update status
+        self.update_card_status()
+        
+        # Enable the review tab and switch to it
+        self.tabs.setTabEnabled(2, True)
+        self.tabs.setCurrentIndex(2)
+    
+    def update_card_status(self):
+        """Update the status label showing selected card count."""
+        selected_count = 0
+        total_count = self.card_table.rowCount()
+        
+        for row in range(total_count):
+            checkbox = self.card_table.cellWidget(row, 0)
+            if checkbox and checkbox.isChecked():
+                selected_count += 1
+        
+        self.card_status_label.setText(f"Cards: {selected_count} selected of {total_count} total")
+    def select_all_cards(self):
+        """Select all cards in the review table."""
+        for row in range(self.card_table.rowCount()):
+            checkbox = self.card_table.cellWidget(row, 0)
+            if checkbox:
+                checkbox.setChecked(True)
+        self.update_card_status()
+    
+    def deselect_all_cards(self):
+        """Deselect all cards in the review table."""
+        for row in range(self.card_table.rowCount()):
+            checkbox = self.card_table.cellWidget(row, 0)
+            if checkbox:
+                checkbox.setChecked(False)
+        self.update_card_status()
+    
+    def back_to_processing(self):
+        """Go back to the processing tab."""
+        self.tabs.setCurrentIndex(0)
+    
+    def export_reviewed_cards_to_csv(self):
+        """Export only the selected cards to CSV."""
+        # Get selected cards
+        selected_cards = []
+        for row in range(self.card_table.rowCount()):
+            checkbox = self.card_table.cellWidget(row, 0)
+            if checkbox and checkbox.isChecked():
+                # Get the edited values from the table
+                card_data = []
+                for col in range(1, self.card_table.columnCount()):  # Skip checkbox column
+                    item = self.card_table.item(row, col)
+                    card_data.append(item.text() if item else "")
+                selected_cards.append(card_data)
+        
+        if not selected_cards:
+            QMessageBox.warning(self, "No Cards Selected", "Please select at least one card to export.")
+            return
+        
+        # Show file dialog to save CSV
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Anki CSV", "anki_cards.csv", "CSV Files (*.csv)"
+        )
+        
+        if file_path:
+            try:
+                with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.writer(csvfile)
+                    # Write header
+                    writer.writerow([
+                        'Front (Eksempel med ord fjernet eller blankt)',
+                        'Front (Billede)', 
+                        'Front (Definition, grundform, osv.)',
+                        'Back (et enkelt ord/udtryk, uden kontekst)',
+                        '- Hele sætningen (intakt)',
+                        '- Ekstra info (IPA, køn, bøjning)',
+                        '• Lav 2 kort?'
+                    ])
+                    # Write selected cards
+                    writer.writerows(selected_cards)
+                
+                # After successful CSV export, copy audio files to Anki
+                self._copy_audio_files_to_anki(selected_cards)
+                
+                QMessageBox.information(
+                    self, "Export Complete", 
+                    f"Successfully exported {len(selected_cards)} cards to:\n{file_path}\n\n" +
+                    "Audio files have been copied to your Anki media folder."
+                )
+                
+                # Reset the app state and go back to processing tab
+                self.reset_for_new_processing()
+                
+            except Exception as e:
+                QMessageBox.critical(self, "Export Error", f"Failed to save CSV file:\n{str(e)}")
+    
+    def _copy_audio_files_to_anki(self, selected_cards):
+        """Copy audio files for selected cards to Anki media folder."""
+        try:
+            anki_folder = self.anki_dir_input.text()
+            output_dir = self.output_dir_input.text()
+            
+            if not anki_folder or not os.path.exists(anki_folder):
+                self.log("Warning: Anki media folder not found. Audio files not copied to Anki.")
+                return
+            
+            if not output_dir or not os.path.exists(output_dir):
+                self.log("Warning: Output directory not found. Audio files not copied to Anki.")
+                return
+            
+            # Extract unique words from selected cards that have audio references
+            words_to_copy = set()
+            for card in selected_cards:
+                # Check the grammar info column (index 5) for audio references
+                if len(card) > 5 and '[sound:' in card[5]:
+                    # Extract word from audio reference like "[sound:word.mp3]"
+                    import re
+                    audio_match = re.search(r'\[sound:([^.]+)\.mp3\]', card[5])
+                    if audio_match:
+                        words_to_copy.add(audio_match.group(1))
+            
+            copied_count = 0
+            failed_copies = []
+            
+            for word in words_to_copy:
+                source_file = os.path.join(output_dir, f"{word}.mp3")
+                dest_file = os.path.join(anki_folder, f"{word}.mp3")
+                
+                if os.path.exists(source_file):
+                    try:
+                        import shutil
+                        shutil.copy2(source_file, dest_file)
+                        copied_count += 1
+                        self.log(f"✓ Copied {word}.mp3 to Anki media folder")
+                    except Exception as e:
+                        failed_copies.append(word)
+                        self.log(f"✗ Failed to copy {word}.mp3: {str(e)}")
+                else:
+                    failed_copies.append(word)
+                    self.log(f"✗ Audio file not found: {word}.mp3")
+            
+            self.log(f"\nAudio copy summary: {copied_count} files copied successfully")
+            if failed_copies:
+                self.log(f"Failed to copy {len(failed_copies)} files: {', '.join(failed_copies)}")
+            
+        except Exception as e:
+            self.log(f"Error copying audio files to Anki: {str(e)}")
+    
+    def reset_for_new_processing(self):
+        """Reset the app for new processing."""
+        # Clear data
+        self.generated_cards = []
+        self.word_image_urls = {}
+        self.card_table.setRowCount(0)
+        self.card_status_label.setText("No cards loaded")
+        
+        # Disable review tab and go back to processing
+        self.tabs.setTabEnabled(2, False)
+        self.tabs.setCurrentIndex(0)
+        
+        # Reset UI state
+        self.update_button_state("idle")
+        self.sentence_results.clear()
+        self.audio_progress_bar.setValue(0)
+        self.sentence_progress_bar.setValue(0)
+        self.image_progress_bar.setValue(0)
+    
     def browse_output_dir(self):
         """Browse for output directory."""
         dir_path = QFileDialog.getExistingDirectory(
@@ -281,9 +566,9 @@ class DanishAudioApp(QMainWindow):
             QMessageBox.warning(self, "No API Key", "Please enter your OpenAI API key in the Settings tab.")
             return
         
-        # Get output directory and Anki settings (always copy to Anki)
+        # Get output directory and Anki settings - DON'T copy to Anki yet
         output_dir = self.output_dir_input.text()
-        copy_to_anki = True  # Always copy audio files to Anki
+        copy_to_anki = False  # Don't copy to Anki until CSV is exported
         anki_folder = self.anki_dir_input.text()
         
         # Create directory if it doesn't exist
@@ -326,7 +611,6 @@ class DanishAudioApp(QMainWindow):
         self.worker.progress_signal.connect(self.update_audio_progress)
         self.worker.finished_signal.connect(self.audio_download_finished)
         self.worker.start()
-    
     def audio_download_finished(self, successful, failed):
         """Handle completion of audio download and start sentence generation."""
         self.log("\n=== Audio Download Complete ===")
@@ -389,7 +673,6 @@ class DanishAudioApp(QMainWindow):
         
         # Complete the unified processing
         self.unified_processing_finished()
-    
     def image_fetching_error(self, error_msg):
         """Handle errors in image fetching."""
         self.log(f"Image fetching error: {error_msg}")
@@ -405,25 +688,45 @@ class DanishAudioApp(QMainWindow):
         
         self.log("\n=== Processing Complete! ===")
         self.log("Audio files, example sentences, and images have been processed.")
+        self.log("Generating cards for review...")
         
-        # Update UI
-        self.update_button_state("results_ready")
-        
-        # Show completion message
-        word_count = len(self.pending_sentence_generation['words'])
-        image_count = len([url for url in self.word_image_urls.values() if url]) if hasattr(self, 'word_image_urls') else 0
-        QMessageBox.information(
-            self, 
-            "Processing Complete!", 
-            f"Successfully processed {word_count} words!\n\n" +
-            "✓ Audio files downloaded\n" +
-            "✓ Example sentences generated\n" +
-            f"✓ Images found for {image_count} words\n" +
-            "✓ Ready for Anki import"
-        )
-        
-        # Update button state to results ready
-        self.update_button_state("results_ready")
+        # Generate cards for review
+        try:
+            cards_data = self._generate_cards_for_review()
+            if cards_data:
+                self.log(f"Generated {len(cards_data)} cards for review.")
+                
+                # Show completion message and redirect to review
+                word_count = len(self.pending_sentence_generation['words'])
+                image_count = len([url for url in self.word_image_urls.values() if url]) if hasattr(self, 'word_image_urls') else 0
+                
+                result = QMessageBox.information(
+                    self, 
+                    "Processing Complete!", 
+                    f"Successfully processed {word_count} words!\n\n" +
+                    "✓ Audio files downloaded\n" +
+                    "✓ Example sentences generated\n" +
+                    f"✓ Images found for {image_count} words\n" +
+                    f"✓ Generated {len(cards_data)} flashcards\n\n" +
+                    "Click OK to review and edit your cards.",
+                    QMessageBox.Ok
+                )
+                
+                # Populate the review table and switch to review tab
+                self.populate_card_review_table(cards_data)
+                
+                # Update button state to idle since we're now in review mode
+                self.update_button_state("idle")
+                
+            else:
+                self.log("No cards were generated. Check the sentence results format.")
+                QMessageBox.warning(self, "No Cards Generated", "No cards could be generated from the results. Please check the output format.")
+                self.update_button_state("results_ready")  # Fall back to old workflow
+                
+        except Exception as e:
+            self.log(f"Error generating cards for review: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Error generating cards for review: {str(e)}")
+            self.update_button_state("results_ready")  # Fall back to old workflow
     def handle_action_button(self):
         """Handle clicks on the dynamic action button based on current state."""
         if self.app_state == "idle":
@@ -523,12 +826,63 @@ class DanishAudioApp(QMainWindow):
         if file_path:
             try:
                 self._export_sentences_to_csv(file_path)
-                QMessageBox.information(self, "Saved", f"Results saved to {file_path}")
+                QMessageBox.information(self, "Saved", f"Results saved to {file_path}\n\nAudio files have been copied to your Anki media folder.")
                 self.log(f"Anki CSV export saved to {file_path}")
                 # Transition button back to processing mode to allow new processing
                 self.update_button_state("idle")
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Error saving CSV file: {str(e)}")
+
+    def _generate_cards_for_review(self):
+        """Generate cards from sentence results for review interface."""
+        content = self.sentence_results.toPlainText()
+        
+        # Parse the content to extract words and sentences
+        cards_data = []
+        
+        # Split by word blocks - looking for pattern like "**word**" at start of line, followed by content
+        word_blocks = re.split(r'\n\s*---\s*\n', content)
+        
+        for block in word_blocks:
+            block = block.strip()
+            if not block:
+                continue
+                
+            # Extract the word from the beginning of the block
+            word_match = re.match(r'\*\*([^*]+)\*\*', block)
+            if not word_match:
+                continue
+                
+            word = word_match.group(1).strip()
+            
+            # Skip if this is formatting text
+            if word.lower() in ['example sentences', 'eksempel sætninger']:
+                continue
+            
+            # Extract grammar information from the block
+            grammar_info = self._extract_grammar_info(block)
+            
+            # Extract sentences from the block
+            sentence_pattern = r'(\d+)\.\s*([^-\n]+?)\s*-\s*([^\n]+?)(?=\n\d+\.|\n\n|\Z)'
+            matches = re.findall(sentence_pattern, block, re.DOTALL)
+            
+            if not matches:
+                continue
+            
+            sentences = []
+            for match in matches:
+                sentence_num, danish, english = match
+                danish = danish.strip()
+                english = english.strip()
+                if danish and english:
+                    sentences.append(danish)
+            
+            if len(sentences) >= 3:
+                # Generate the three card types for this word with grammar info
+                word_cards = self._generate_anki_cards(word, sentences[:3], grammar_info)
+                cards_data.extend(word_cards)
+        
+        return cards_data
 
     def _export_sentences_to_csv(self, file_path):
         """Export sentences to CSV format for Anki import with specific card types."""
@@ -593,6 +947,9 @@ class DanishAudioApp(QMainWindow):
             ])
             # Write data
             writer.writerows(csv_data)
+        
+        # After successful CSV export, copy audio files to Anki
+        self._copy_audio_files_to_anki(csv_data)
     
     def _extract_grammar_info(self, block):
         """Extract grammar information from a word block."""
@@ -780,22 +1137,27 @@ class DanishAudioApp(QMainWindow):
     
     def _format_definition(self, word, grammar_info):
         """Format definition text for Card Type 2."""
-        definition_parts = [word]
-        
-        if grammar_info.get('type'):
-            definition_parts.append(f"({grammar_info['type']})")
-        
-        # Add gender for nouns
-        if grammar_info.get('gender'):
-            definition_parts.append(f"[{grammar_info['gender']}]")
-        
         # Add basic definition if available
         if grammar_info.get('definition'):
-            definition_parts.append(grammar_info['definition'])
+            definition = grammar_info['definition']
+            
+            # Remove the word itself from the definition if it appears at the beginning
+            # This handles cases where ChatGPT includes the word redundantly
+            word_lower = word.lower()
+            definition_lower = definition.lower()
+            
+            # Check if definition starts with the word (with optional punctuation/formatting)
+            if definition_lower.startswith(word_lower):
+                # Remove the word and any following punctuation/whitespace
+                remaining = definition[len(word):].lstrip(' :-–—')
+                if remaining:
+                    definition = remaining
+                else:
+                    definition = "Definition nødvendig"
+            
+            return definition
         else:
-            definition_parts.append("Definition nødvendig")
-        
-        return "\n".join(definition_parts)
+            return "Definition nødvendig"
     
     def _format_grammar_details(self, grammar_info):
         """Format detailed grammar information in the format: /IPA/ – type, inflections."""
