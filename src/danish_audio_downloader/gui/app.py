@@ -12,12 +12,38 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QLineEdit, QGroupBox, QFormLayout, QTabWidget,
                             QComboBox, QSplitter, QTableWidget, QTableWidgetItem,
                             QHeaderView, QAbstractItemView, QFrame)
-from PyQt5.QtCore import Qt, QSettings
-from PyQt5.QtGui import QIcon, QFont, QTextCursor
+from PyQt5.QtCore import Qt, QSettings, QThread, pyqtSignal
+from PyQt5.QtGui import QIcon, QFont, QTextCursor, QColor, QPixmap
+from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest
+import requests
 
 from ..core.worker import Worker
 from ..core.sentence_worker import SentenceWorker
 from ..core.image_worker import ImageWorker
+
+
+class ImageLoader(QThread):
+    """Helper class to load images from URLs without blocking the UI."""
+    image_loaded = pyqtSignal(int, int, QPixmap)  # row, column, pixmap
+    
+    def __init__(self, row, col, url):
+        super().__init__()
+        self.row = row
+        self.col = col
+        self.url = url
+    
+    def run(self):
+        try:
+            response = requests.get(self.url, timeout=10)
+            if response.status_code == 200:
+                pixmap = QPixmap()
+                if pixmap.loadFromData(response.content):
+                    # Scale image to fit in table cell
+                    scaled_pixmap = pixmap.scaled(80, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    self.image_loaded.emit(self.row, self.col, scaled_pixmap)
+        except Exception as e:
+            # If image loading fails, we'll just keep the text indicator
+            pass
 
 
 class DanishAudioApp(QMainWindow):
@@ -39,6 +65,7 @@ class DanishAudioApp(QMainWindow):
         self.image_worker = None
         self.word_image_urls = {}  # Store image URLs for CSV export
         self.generated_cards = []  # Store generated cards for review
+        self.image_loaders = []  # Track image loading threads
         
         # Set initial button state
         self.update_button_state("idle")
@@ -233,15 +260,16 @@ class DanishAudioApp(QMainWindow):
         layout = QVBoxLayout()
         
         # Header with instructions
-        header_group = QGroupBox("Review & Edit Flashcards")
+        header_group = QGroupBox("Review and Edit Flashcards")
         header_layout = QVBoxLayout()
         
         instructions = QLabel(
             "Review and edit your generated flashcards below. You can modify any field or uncheck cards you don't want to include.\n"
-            "Cards are generated in sets of 3 for each word: Fill-in-blank, Definition, and Additional sentence."
+            "Cards are generated in sets of 3 for each word: Fill-in-blank, Definition, and Additional sentence.\n\n"
+            "💡 The 'Preview' columns show the source image and English translation for reference only - they are NOT included in your Anki cards."
         )
         instructions.setWordWrap(True)
-        instructions.setStyleSheet("QLabel { padding: 10px; background-color: #f0f8ff; border: 1px solid #d0d0d0; border-radius: 5px; }")
+        instructions.setStyleSheet("QLabel { padding: 10px; background-color: #4CAF50; border: 1px solid #d0d0d0; border-radius: 5px; }")
         header_layout.addWidget(instructions)
         
         header_group.setLayout(header_layout)
@@ -252,9 +280,9 @@ class DanishAudioApp(QMainWindow):
         table_layout = QVBoxLayout()
         
         self.card_table = QTableWidget()
-        self.card_table.setColumnCount(8)  # Include checkbox column
+        self.card_table.setColumnCount(10)  # Include checkbox column + preview columns
         headers = [
-            "Include", "Front (Example)", "Front (Image)", "Front (Definition)", 
+            "Include", "Preview: Image", "Preview: English", "Front (Example)", "Front (Image)", "Front (Definition)", 
             "Back (Word)", "Full Sentence", "Grammar Info", "Make 2 Cards"
         ]
         self.card_table.setHorizontalHeaderLabels(headers)
@@ -262,21 +290,23 @@ class DanishAudioApp(QMainWindow):
         # Configure table appearance
         self.card_table.horizontalHeader().setStretchLastSection(False)
         self.card_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Include checkbox
-        self.card_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)  # Front example
-        self.card_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Image
-        self.card_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)  # Definition
-        self.card_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)  # Back word
-        self.card_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)  # Full sentence
-        self.card_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Stretch)  # Grammar
-        self.card_table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeToContents)  # Make 2 cards
+        self.card_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Preview: Image
+        self.card_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Preview: English
+        self.card_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)  # Front example
+        self.card_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)  # Front image
+        self.card_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)  # Definition
+        self.card_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)  # Back word
+        self.card_table.horizontalHeader().setSectionResizeMode(7, QHeaderView.Stretch)  # Full sentence
+        self.card_table.horizontalHeader().setSectionResizeMode(8, QHeaderView.Stretch)  # Grammar
+        self.card_table.horizontalHeader().setSectionResizeMode(9, QHeaderView.ResizeToContents)  # Make 2 cards
         
         self.card_table.setAlternatingRowColors(True)
         self.card_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.card_table.verticalHeader().setVisible(False)
         self.card_table.setMinimumHeight(400)  # Give more space for the table
         
-        # Add row height for better readability
-        self.card_table.verticalHeader().setDefaultSectionSize(60)
+        # Add row height for better readability and image display
+        self.card_table.verticalHeader().setDefaultSectionSize(80)
         
         table_layout.addWidget(self.card_table)
         
@@ -319,25 +349,73 @@ class DanishAudioApp(QMainWindow):
         # Initially disable the review tab
         self.tabs.setTabEnabled(2, False)  # Review tab is index 2
     
+    def on_image_loaded(self, row, col, pixmap):
+        """Callback when an image is successfully loaded."""
+        widget = self.card_table.cellWidget(row, col)
+        if widget and isinstance(widget, QLabel):
+            widget.setPixmap(pixmap)
+            widget.setText("")  # Clear the loading text
+    
     def populate_card_review_table(self, cards_data):
         """Populate the review table with generated cards."""
         self.generated_cards = cards_data
         self.card_table.setRowCount(len(cards_data))
         
-        for row, card in enumerate(cards_data):
+        for row, card_info in enumerate(cards_data):
+            # Extract card data and metadata
+            if isinstance(card_info, dict):
+                card = card_info['card_data']
+                danish_word = card_info['danish_word']
+                english_word = card_info['english_word']
+                image_url = card_info['image_url']
+            else:
+                # Fallback for old format (shouldn't happen with new code)
+                card = card_info
+                danish_word = "Unknown"
+                english_word = "Unknown"
+                image_url = None
+            
             # Include checkbox
             checkbox = QCheckBox()
             checkbox.setChecked(True)  # Default to selected
             checkbox.stateChanged.connect(self.update_card_status)  # Connect to status update
             self.card_table.setCellWidget(row, 0, checkbox)
             
-            # Populate card data (indices match the card structure)
-            for col, value in enumerate(card, 1):
+            # Column 1: Preview Image
+            if image_url:
+                image_label = QLabel()
+                image_label.setAlignment(Qt.AlignCenter)
+                image_label.setText("🖼️ Loading...")
+                image_label.setToolTip(f"Image URL: {image_url}")
+                image_label.setStyleSheet("QLabel { background-color: rgb(144, 238, 144); padding: 5px; }")
+                image_label.setMinimumSize(90, 70)
+                image_label.setMaximumSize(90, 70)
+                self.card_table.setCellWidget(row, 1, image_label)
+                loader = ImageLoader(row, 1, image_url)
+                loader.image_loaded.connect(self.on_image_loaded)
+                loader.start()
+                self.image_loaders.append(loader)
+            else:
+                no_image_label = QLabel("❌ No Image")
+                no_image_label.setAlignment(Qt.AlignCenter)
+                no_image_label.setStyleSheet("QLabel { background-color: rgb(211, 211, 211); padding: 5px; }")
+                no_image_label.setMinimumSize(90, 70)
+                no_image_label.setMaximumSize(90, 70)
+                self.card_table.setCellWidget(row, 1, no_image_label)
+            
+            # Column 2: Preview English Word
+            english_preview = QTableWidgetItem(f"🇬🇧 {english_word}")
+            english_preview.setToolTip(f"Danish: {danish_word} → English: {english_word}")
+            english_preview.setFlags(Qt.ItemIsEnabled)  # Read-only
+            english_preview.setBackground(QColor(173, 216, 230))  # Light blue
+            self.card_table.setItem(row, 2, english_preview)
+            
+            # Card data columns (shifted by +2)
+            for col, value in enumerate(card, 3):
                 item = QTableWidgetItem(str(value))
                 item.setFlags(item.flags() | Qt.ItemIsEditable)  # Make cells editable
-                # Enable word wrap for better readability of long text
-                if col in [1, 3, 5, 6]:  # Example, Definition, Full Sentence, Grammar columns
-                    item.setToolTip(str(value))  # Show full text in tooltip
+                if col in [3, 5, 7, 8]:  # Example, Definition, Full Sentence, Grammar columns (shifted)
+                    item.setToolTip(str(value))
                 self.card_table.setItem(row, col, item)
         
         # Update status
@@ -385,9 +463,9 @@ class DanishAudioApp(QMainWindow):
         for row in range(self.card_table.rowCount()):
             checkbox = self.card_table.cellWidget(row, 0)
             if checkbox and checkbox.isChecked():
-                # Get the edited values from the table
+                # Get the edited values from the table (exclude preview columns 8 and 9)
                 card_data = []
-                for col in range(1, self.card_table.columnCount()):  # Skip checkbox column
+                for col in range(1, 8):  # Columns 1-7 (skip checkbox and preview columns)
                     item = self.card_table.item(row, col)
                     card_data.append(item.text() if item else "")
                 selected_cards.append(card_data)
@@ -487,6 +565,13 @@ class DanishAudioApp(QMainWindow):
     
     def reset_for_new_processing(self):
         """Reset the app for new processing."""
+        # Stop any running image loaders
+        for loader in self.image_loaders:
+            if loader.isRunning():
+                loader.terminate()
+                loader.wait()
+        self.image_loaders.clear()
+        
         # Clear data
         self.generated_cards = []
         self.word_image_urls = {}
@@ -880,7 +965,20 @@ class DanishAudioApp(QMainWindow):
             if len(sentences) >= 3:
                 # Generate the three card types for this word with grammar info
                 word_cards = self._generate_anki_cards(word, sentences[:3], grammar_info)
-                cards_data.extend(word_cards)
+                
+                # Add metadata for each card
+                english_translation = grammar_info.get('english_word', 'Unknown')
+                image_url = self.word_image_urls.get(word, None) if hasattr(self, 'word_image_urls') else None
+                
+                for card in word_cards:
+                    # Add preview information (Danish word, English translation, image status)
+                    card_with_metadata = {
+                        'card_data': card,
+                        'danish_word': word,
+                        'english_word': english_translation,
+                        'image_url': image_url
+                    }
+                    cards_data.append(card_with_metadata)
         
         return cards_data
 
@@ -1100,27 +1198,37 @@ class DanishAudioApp(QMainWindow):
         
         # Card Type 1: Fill-in-the-blank + IPA
         sentence1_with_blank = remove_word_from_sentence(sentences[0], word, use_blank=True)
-        definition_text = self._format_definition(word, grammar_info)
         grammar_details = self._format_grammar_details(grammar_info)
         ipa_info = grammar_info['ipa'] if grammar_info['ipa'] else f'/IPA_for_{word}/'
         if not ipa_info.startswith('/'):
             ipa_info = f'/{ipa_info}/'
+        # Remove English part from definition (if present)
+        def strip_english_from_definition(definition):
+            # Remove any English translation after a dash or parenthesis, e.g. "en kat - a cat" or "en kat (cat)"
+            if not definition:
+                return ''
+            # Remove dash + English
+            definition = re.sub(r'\s*[-–—]\s*[A-Za-z ,;\'\"()]+$', '', definition)
+            # Remove parenthetical English at end
+            definition = re.sub(r'\s*\([A-Za-z ,;\'\"-]+\)\s*$', '', definition)
+            return definition.strip()
+        definition_clean = strip_english_from_definition(grammar_info.get('definition', ''))
         cards.append([
             sentence1_with_blank,                    # Front (Eksempel med ord fjernet eller blankt)
             get_image_url(word),                     # Front (Billede)
-            definition_text,                                      # Front (Definition, grundform, osv.) - empty for card 1
+            definition_clean,                        # Front (Definition, grundform, osv.)
             word,                                    # Back (et enkelt ord/udtryk, uden kontekst)
             sentences[0],                            # - Hele sætningen (intakt)
             f'{grammar_details} [sound:{word}.mp3]',        # - Ekstra info (IPA, køn, bøjning)
             'y'                                      # • Lav 2 kort?
         ])
         
-        # Card Type 2: Fill-in-the-blank + definition
+        # Card Type 2: Fill-in-the-blank + definition (definition present, no English)
         sentence1_no_word = remove_word_from_sentence(sentences[0], word, use_blank=False)
         cards.append([
             sentence1_no_word,                       # Front (Eksempel med ord fjernet eller blankt)
             get_image_url(word),                     # Front (Billede)
-            f'{word} - {definition_text}',                         # Front (Definition, grundform, osv.)
+            f'{word} - {definition_clean}',                        # Front (Definition, grundform, osv.)
             '',                                      # Back (et enkelt ord/udtryk, uden kontekst) - empty for card 2
             sentences[0],                            # - Hele sætningen (intakt)
             f'{grammar_details} [sound:{word}.mp3]', # - Ekstra info (IPA, køn, bøjning)
@@ -1132,7 +1240,7 @@ class DanishAudioApp(QMainWindow):
         cards.append([
             sentence2_with_blank,                    # Front (Eksempel med ord fjernet eller blankt)
             get_image_url(word),                     # Front (Billede)
-            definition_text,                                      # Front (Definition, grundform, osv.) - empty for card 3
+            definition_clean,                        # Front (Definition, grundform, osv.)
             word,                                    # Back (et enkelt ord/udtryk, uden kontekst)
             sentences[1],                            # - Hele sætningen (intakt)
             f'{grammar_details} [sound:{word}.mp3]', # - Ekstra info (IPA, køn, bøjning)
