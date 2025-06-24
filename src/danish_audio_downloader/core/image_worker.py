@@ -1,5 +1,5 @@
 """
-Worker thread for fetching images from dictionary.langeek.co.
+Worker thread for fetching images from langeek.co only.
 """
 
 import re
@@ -7,7 +7,6 @@ import time
 import requests
 from typing import List, Dict, Optional
 from PyQt5.QtCore import QThread, pyqtSignal
-from bs4 import BeautifulSoup
 import openai
 
 from ..utils.config import AppConfig
@@ -101,22 +100,12 @@ class ImageWorker(QThread):
             return None
 
     def _search_langeek_image(self, english_word: str) -> Optional[str]:
-        """Search for an image on dictionary.langeek.co and other sources."""
+        """Search for an image on langeek.co."""
         try:
-            # Try multiple search strategies
-            search_strategies = [
-                self._search_langeek_direct,
-                self._search_alternative_sources
-            ]
-            
-            for strategy in search_strategies:
-                try:
-                    result = strategy(english_word)
-                    if result:
-                        return result
-                except Exception as e:
-                    self.update_signal.emit(f"Search strategy failed for {english_word}: {str(e)}")
-                    continue
+            # Search using langeek direct API
+            result = self._search_langeek_direct(english_word)
+            if result:
+                return result
             
             # If no images found, log this but don't error
             self.update_signal.emit(f"No suitable images found for: {english_word}")
@@ -173,85 +162,6 @@ class ImageWorker(QThread):
             
         except Exception as e:
             self.update_signal.emit(f"Error accessing langeek API for {english_word}: {str(e)}")
-            return None
-
-    def _search_alternative_sources(self, english_word: str) -> Optional[str]:
-        """Search alternative image sources as fallback."""
-        try:
-            # Try Wikimedia Commons for educational images
-            wikimedia_url = self._search_wikimedia_commons(english_word)
-            if wikimedia_url:
-                return wikimedia_url
-            
-            # Try other educational sources
-            # For now, we return None to maintain existing behavior
-            # but we could add more sources here like:
-            # - OpenClipArt
-            # - Pixabay (with API key)
-            # - Unsplash (with API key)
-            
-            return None
-            
-        except Exception:
-            return None
-    
-    def _search_wikimedia_commons(self, english_word: str) -> Optional[str]:
-        """Search Wikimedia Commons for educational images."""
-        try:
-            # Use Wikimedia Commons API to search for images
-            api_url = "https://commons.wikimedia.org/w/api.php"
-            params = {
-                'action': 'query',
-                'format': 'json',
-                'list': 'search',
-                'srsearch': f'File:{english_word}',
-                'srnamespace': '6',  # File namespace
-                'srlimit': '3'
-            }
-            
-            response = requests.get(api_url, params=params, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                if 'query' in data and 'search' in data['query']:
-                    for result in data['query']['search']:
-                        title = result.get('title', '')
-                        if title.startswith('File:'):
-                            # Get the actual file URL
-                            file_url = self._get_wikimedia_file_url(title)
-                            if file_url:
-                                return file_url
-            
-            return None
-            
-        except Exception:
-            return None
-    
-    def _get_wikimedia_file_url(self, file_title: str) -> Optional[str]:
-        """Get the actual URL for a Wikimedia Commons file."""
-        try:
-            api_url = "https://commons.wikimedia.org/w/api.php"
-            params = {
-                'action': 'query',
-                'format': 'json',
-                'titles': file_title,
-                'prop': 'imageinfo',
-                'iiprop': 'url|size',
-                'iiurlwidth': '300'  # Get a reasonably sized thumbnail
-            }
-            
-            response = requests.get(api_url, params=params, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                if 'query' in data and 'pages' in data['query']:
-                    for page in data['query']['pages'].values():
-                        if 'imageinfo' in page:
-                            imageinfo = page['imageinfo'][0]
-                            # Prefer thumbnail URL, fallback to full URL
-                            return imageinfo.get('thumburl', imageinfo.get('url'))
-            
-            return None
-            
-        except Exception:
             return None
 
     def _is_valid_image_url(self, url: str) -> bool:
