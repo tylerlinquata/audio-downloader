@@ -21,7 +21,7 @@ class AppConfig:
     DEFAULT_CEFR_LEVEL = "B1"
     
     # API settings
-    OPENAI_MODEL = "gpt-3.5-turbo"
+    OPENAI_MODEL = "gpt-4o-mini"
     OPENAI_MAX_TOKENS = 800
     OPENAI_TEMPERATURE = 0.7
     
