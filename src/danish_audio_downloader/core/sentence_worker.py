@@ -14,7 +14,7 @@ class SentenceWorker(QThread):
     """Worker thread for generating example sentences using ChatGPT."""
     update_signal = pyqtSignal(str)
     progress_signal = pyqtSignal(int, int)  # current, total
-    finished_signal = pyqtSignal(str)  # generated sentences
+    finished_signal = pyqtSignal(str, dict)  # generated sentences, word translations
     error_signal = pyqtSignal(str)  # error message
 
     def __init__(self, words: List[str], cefr_level: str, api_key: str) -> None:
@@ -32,6 +32,7 @@ class SentenceWorker(QThread):
             client = openai.OpenAI(api_key=self.api_key)
             
             all_sentences = []
+            word_translations = {}  # Track English translations for image fetching
             total_words = len(self.words)
             
             for i, word in enumerate(self.words):
@@ -92,6 +93,11 @@ Definition: [Danish definition/explanation]
                     sentence_content = response.choices[0].message.content
                     all_sentences.append(sentence_content)
                     
+                    # Extract English translation for image fetching
+                    english_translation = self._extract_english_translation(sentence_content)
+                    if english_translation:
+                        word_translations[word] = english_translation
+                    
                     # Add a small delay to respect rate limits
                     time.sleep(AppConfig.REQUEST_DELAY)
                     
@@ -102,10 +108,48 @@ Definition: [Danish definition/explanation]
             
             if not self.abort_flag:
                 final_result = "\n\n".join(all_sentences)
-                self.finished_signal.emit(final_result)
+                self.finished_signal.emit(final_result, word_translations)
             
         except Exception as e:
             self.error_signal.emit(f"Failed to initialize OpenAI: {str(e)}")
+
+    def _extract_english_translation(self, content: str) -> str:
+        """Extract the most common English translation from the ChatGPT response."""
+        import re
+        
+        # Look for patterns that might contain English translations
+        # First, try to find the first English translation from the example sentences
+        sentence_pattern = r'\d+\.\s*[^-\n]+?\s*-\s*([^\n]+?)(?=\n\d+\.|\n\n|\Z)'
+        matches = re.findall(sentence_pattern, content, re.DOTALL)
+        
+        if matches:
+            # Get the first English translation and extract the main word
+            first_translation = matches[0].strip()
+            # Remove articles and get the main noun/word
+            words = first_translation.lower().split()
+            # Filter out common articles, prepositions, etc.
+            filter_words = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'to', 'of', 'in', 'on', 'at', 'by', 'for', 'with', 'from'}
+            content_words = [w for w in words if w not in filter_words and len(w) > 2]
+            if content_words:
+                return content_words[0]  # Return the first meaningful word
+        
+        # Fallback: look for definition patterns
+        definition_patterns = [
+            r'Definition:\s*([^\n]+)',
+            r'Definition:\s*\[([^\]]+)\]',
+        ]
+        
+        for pattern in definition_patterns:
+            match = re.search(pattern, content, re.IGNORECASE)
+            if match:
+                definition = match.group(1).strip()
+                # Extract English words from the definition
+                words = definition.lower().split()
+                content_words = [w for w in words if w not in filter_words and len(w) > 2]
+                if content_words:
+                    return content_words[0]
+        
+        return ""
 
     def abort(self) -> None:
         """Abort the sentence generation process."""

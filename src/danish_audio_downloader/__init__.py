@@ -12,9 +12,11 @@ __email__ = "your.email@example.com"
 from .core.downloader import DanishAudioDownloader
 from .core.worker import Worker
 from .core.sentence_worker import SentenceWorker
+from .core.image_worker import ImageWorker
 
 __all__ = [
     "DanishAudioDownloader",
     "Worker", 
-    "SentenceWorker"
+    "SentenceWorker",
+    "ImageWorker"
 ]

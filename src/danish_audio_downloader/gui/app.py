@@ -16,6 +16,7 @@ from PyQt5.QtGui import QIcon, QFont, QTextCursor
 
 from ..core.worker import Worker
 from ..core.sentence_worker import SentenceWorker
+from ..core.image_worker import ImageWorker
 
 
 class DanishAudioApp(QMainWindow):
@@ -34,6 +35,8 @@ class DanishAudioApp(QMainWindow):
         # Initialize member variables
         self.worker = None
         self.sentence_worker = None
+        self.image_worker = None
+        self.word_image_urls = {}  # Store image URLs for CSV export
         
         # Set initial button state
         self.update_button_state("idle")
@@ -71,7 +74,7 @@ class DanishAudioApp(QMainWindow):
         
         # Text area for words
         self.word_input = QTextEdit()
-        self.word_input.setPlaceholderText("Enter Danish words, one per line\n\nThis will generate:\n• Audio pronunciations\n• Example sentences with grammar info\n• Anki-ready CSV export")
+        self.word_input.setPlaceholderText("Enter Danish words, one per line\n\nThis will generate:\n• Audio pronunciations\n• Example sentences with grammar info\n• Images from dictionary sources\n• Anki-ready CSV export")
         self.word_input.setMinimumHeight(120)
         word_layout.addWidget(self.word_input)
         
@@ -96,6 +99,13 @@ class DanishAudioApp(QMainWindow):
         self.sentence_progress_bar.setValue(0)
         sentence_progress_layout.addWidget(self.sentence_progress_bar)
         progress_layout.addLayout(sentence_progress_layout)
+        
+        image_progress_layout = QHBoxLayout()
+        image_progress_layout.addWidget(QLabel("Image Fetching:"))
+        self.image_progress_bar = QProgressBar()
+        self.image_progress_bar.setValue(0)
+        image_progress_layout.addWidget(self.image_progress_bar)
+        progress_layout.addLayout(image_progress_layout)
         
         # Combined log area
         self.log_output = QTextEdit()
@@ -288,6 +298,7 @@ class DanishAudioApp(QMainWindow):
         self.update_button_state("processing")
         self.audio_progress_bar.setValue(0)
         self.sentence_progress_bar.setValue(0)
+        self.image_progress_bar.setValue(0)
         self.sentence_results.clear()
         
         self.log("Starting unified processing...")
@@ -338,27 +349,76 @@ class DanishAudioApp(QMainWindow):
         self.sentence_worker = SentenceWorker(params['words'], params['cefr_level'], params['api_key'])
         self.sentence_worker.update_signal.connect(self.log)
         self.sentence_worker.progress_signal.connect(self.update_sentence_progress)
-        self.sentence_worker.finished_signal.connect(self.unified_processing_finished)
+        self.sentence_worker.finished_signal.connect(self.sentence_generation_finished)
         self.sentence_worker.error_signal.connect(self.sentence_generation_error)
         self.sentence_worker.start()
     
-    def unified_processing_finished(self, results):
-        """Handle completion of the entire unified processing."""
+    def sentence_generation_finished(self, results, word_translations):
+        """Handle completion of sentence generation and start image fetching."""
         self.sentence_results.setText(results)
+        self.log("\n=== Sentence Generation Complete ===")
+        self.log(f"Generated sentences for {len(word_translations)} words")
+        
+        # Store the sentence results for final completion
+        self.final_sentence_results = results
+        
+        # Start image fetching phase
+        self.start_image_fetching_phase(word_translations)
+    
+    def start_image_fetching_phase(self, word_translations):
+        """Start the image fetching phase."""
+        self.log("\n=== Phase 3: Fetching Images ===")
+        
+        # Create and start the image worker thread
+        api_key = self.pending_sentence_generation['api_key']
+        self.image_worker = ImageWorker(word_translations, api_key)
+        self.image_worker.update_signal.connect(self.log)
+        self.image_worker.progress_signal.connect(self.update_image_progress)
+        self.image_worker.finished_signal.connect(self.image_fetching_finished)
+        self.image_worker.error_signal.connect(self.image_fetching_error)
+        self.image_worker.start()
+    
+    def image_fetching_finished(self, image_urls):
+        """Handle completion of image fetching and finish unified processing."""
+        self.log("\n=== Image Fetching Complete ===")
+        successful_images = len([url for url in image_urls.values() if url])
+        self.log(f"Found images for {successful_images} out of {len(image_urls)} words")
+        
+        # Store image URLs for CSV export
+        self.word_image_urls = image_urls
+        
+        # Complete the unified processing
+        self.unified_processing_finished()
+    
+    def image_fetching_error(self, error_msg):
+        """Handle errors in image fetching."""
+        self.log(f"Image fetching error: {error_msg}")
+        # Continue without images - set empty image URLs
+        self.word_image_urls = {}
+        self.unified_processing_finished()
+    
+    def unified_processing_finished(self):
+        """Handle completion of the entire unified processing."""
+        if hasattr(self, 'final_sentence_results'):
+            # Ensure sentence results are displayed
+            self.sentence_results.setText(self.final_sentence_results)
+        
         self.log("\n=== Processing Complete! ===")
-        self.log("Both audio files and example sentences have been generated.")
+        self.log("Audio files, example sentences, and images have been processed.")
         
         # Update UI
         self.update_button_state("results_ready")
         
         # Show completion message
         word_count = len(self.pending_sentence_generation['words'])
+        image_count = len([url for url in self.word_image_urls.values() if url]) if hasattr(self, 'word_image_urls') else 0
         QMessageBox.information(
             self, 
             "Processing Complete!", 
             f"Successfully processed {word_count} words!\n\n" +
             "✓ Audio files downloaded\n" +
             "✓ Example sentences generated\n" +
+            f"✓ Images found for {image_count} words\n" +
             "✓ Ready for Anki import"
         )
         
@@ -378,7 +438,7 @@ class DanishAudioApp(QMainWindow):
         self.app_state = new_state
         
         if new_state == "idle":
-            self.action_button.setText("Process Words (Audio + Sentences)")
+            self.action_button.setText("Process Words (Audio + Sentences + Images)")
             self.action_button.setStyleSheet("QPushButton { font-weight: bold; padding: 12px; background-color: #4CAF50; color: white; }")
             self.action_button.setEnabled(True)
         elif new_state == "processing":
@@ -403,6 +463,12 @@ class DanishAudioApp(QMainWindow):
             self.sentence_worker.abort()
             self.sentence_worker.wait()
             self.log("Sentence generation cancelled.")
+        
+        # Cancel image worker if running
+        if hasattr(self, 'image_worker') and self.image_worker.isRunning():
+            self.image_worker.abort()
+            self.image_worker.wait()
+            self.log("Image fetching cancelled.")
         
         self.log("Processing cancelled.")
         
@@ -429,6 +495,11 @@ class DanishAudioApp(QMainWindow):
         """Update the sentence generation progress bar."""
         percentage = int((current / total) * 100) if total > 0 else 0
         self.sentence_progress_bar.setValue(percentage)
+    
+    def update_image_progress(self, current, total):
+        """Update the image fetching progress bar."""
+        percentage = int((current / total) * 100) if total > 0 else 0
+        self.image_progress_bar.setValue(percentage)
     
     def log(self, message):
         """Log a message to the unified log area."""
@@ -644,6 +715,15 @@ class DanishAudioApp(QMainWindow):
                 
             return result_sentence
         
+        # Helper function to get image URL for a word
+        def get_image_url(word):
+            """Get the image URL for a word, or return placeholder if not available."""
+            if hasattr(self, 'word_image_urls') and word in self.word_image_urls:
+                image_url = self.word_image_urls[word]
+                if image_url:
+                    return f'<img src="{image_url}">'
+            return '<img src="myimage.jpg">'  # Fallback placeholder
+        
         # Initialize grammar info if not provided
         if grammar_info is None:
             grammar_info = {
@@ -664,35 +744,35 @@ class DanishAudioApp(QMainWindow):
             ipa_info = f'/{ipa_info}/'
         cards.append([
             sentence1_with_blank,                    # Front (Eksempel med ord fjernet eller blankt)
-            '<img src="myimage.jpg">',               # Front (Billede)
+            get_image_url(word),                     # Front (Billede)
             definition_text,                                      # Front (Definition, grundform, osv.) - empty for card 1
             word,                                    # Back (et enkelt ord/udtryk, uden kontekst)
             sentences[0],                            # - Hele sætningen (intakt)
-            f'{ipa_info} {grammar_details} [sound:{word}.mp3]',        # - Ekstra info (IPA, køn, bøjning)
+            f'{grammar_details} [sound:{word}.mp3]',        # - Ekstra info (IPA, køn, bøjning)
             'y'                                      # • Lav 2 kort?
         ])
         
         # Card Type 2: Fill-in-the-blank + definition
-        sentence2_no_word = remove_word_from_sentence(sentences[1], word, use_blank=False)
+        sentence1_no_word = remove_word_from_sentence(sentences[0], word, use_blank=False)
         cards.append([
-            sentence2_no_word,                       # Front (Eksempel med ord fjernet eller blankt)
-            '<img src="myimage.jpg">',               # Front (Billede)
+            sentence1_no_word,                       # Front (Eksempel med ord fjernet eller blankt)
+            get_image_url(word),                     # Front (Billede)
             f'{word} {definition_text}',                         # Front (Definition, grundform, osv.)
             '',                                      # Back (et enkelt ord/udtryk, uden kontekst) - empty for card 2
             sentences[0],                            # - Hele sætningen (intakt)
-            f'{ipa_info} {grammar_details} [sound:{word}.mp3]', # - Ekstra info (IPA, køn, bøjning)
+            f'{grammar_details} [sound:{word}.mp3]', # - Ekstra info (IPA, køn, bøjning)
             ''                                       # • Lav 2 kort? - empty for card 2
         ])
         
         # Card Type 3: New sentence with blank
-        sentence3_with_blank = remove_word_from_sentence(sentences[2], word, use_blank=True)
+        sentence2_with_blank = remove_word_from_sentence(sentences[1], word, use_blank=True)
         cards.append([
-            sentence3_with_blank,                    # Front (Eksempel med ord fjernet eller blankt)
-            '<img src="myimage.jpg">',               # Front (Billede)
+            sentence2_with_blank,                    # Front (Eksempel med ord fjernet eller blankt)
+            get_image_url(word),                     # Front (Billede)
             definition_text,                                      # Front (Definition, grundform, osv.) - empty for card 3
             word,                                    # Back (et enkelt ord/udtryk, uden kontekst)
             sentences[1],                            # - Hele sætningen (intakt)
-            f'{ipa_info} {grammar_details} [sound:{word}.mp3]', # - Ekstra info (IPA, køn, bøjning)
+            f'{grammar_details} [sound:{word}.mp3]', # - Ekstra info (IPA, køn, bøjning)
             ''                                       # • Lav 2 kort? - empty for card 3
         ])
         
@@ -718,33 +798,42 @@ class DanishAudioApp(QMainWindow):
         return "\n".join(definition_parts)
     
     def _format_grammar_details(self, grammar_info):
-        """Format detailed grammar information."""
-        details = []
+        """Format detailed grammar information in the format: /IPA/ – type, inflections."""
+        parts = []
         
         # Add IPA if available
         if grammar_info.get('ipa'):
             ipa = grammar_info['ipa']
             if not ipa.startswith('/'):
                 ipa = f'/{ipa}/'
-            details.append(ipa)
+            parts.append(ipa)
         
-        # Add type
+        # Build the main grammar section
+        grammar_parts = []
+        
+        # Add type (verbum, substantiv, etc.)
         if grammar_info.get('type'):
-            details.append(grammar_info['type'])
+            grammar_parts.append(grammar_info['type'])
         
-        # Add gender for nouns
+        # Add gender for nouns (if applicable)
         if grammar_info.get('gender'):
-            details.append(f"køn: {grammar_info['gender']}")
+            grammar_parts.append(f"køn: {grammar_info['gender']}")
         
-        # Add plural form
-        if grammar_info.get('plural'):
-            details.append(f"flertal: {grammar_info['plural']}")
-        
-        # Add inflections
+        # Add inflections or plural form
         if grammar_info.get('inflections'):
-            details.append(f"bøjning: {grammar_info['inflections']}")
+            grammar_parts.append(grammar_info['inflections'])
+        elif grammar_info.get('plural'):
+            grammar_parts.append(f"flertal: {grammar_info['plural']}")
         
-        return " | ".join(details) if details else "Grammatik info nødvendig"
+        # Combine parts with proper formatting
+        if parts and grammar_parts:
+            return f"{parts[0]} – {', '.join(grammar_parts)}"
+        elif parts:
+            return parts[0]
+        elif grammar_parts:
+            return ', '.join(grammar_parts)
+        else:
+            return "Grammatik info nødvendig"
 
 
 def main():

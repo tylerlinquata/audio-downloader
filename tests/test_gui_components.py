@@ -71,6 +71,7 @@ class TestDanishAudioApp(unittest.TestCase):
         self.assertIsNotNone(self.main_window.word_input)
         self.assertIsNotNone(self.main_window.audio_progress_bar)
         self.assertIsNotNone(self.main_window.sentence_progress_bar)
+        self.assertIsNotNone(self.main_window.image_progress_bar)
         self.assertIsNotNone(self.main_window.log_output)
         self.assertIsNotNone(self.main_window.action_button)
         self.assertIsNotNone(self.main_window.sentence_results)
@@ -220,6 +221,14 @@ class TestDanishAudioApp(unittest.TestCase):
         self.main_window.update_sentence_progress(10, 10)
         self.assertEqual(self.main_window.sentence_progress_bar.value(), 100)
     
+    def test_update_image_progress(self):
+        """Test image progress bar update."""
+        self.main_window.update_image_progress(2, 5)
+        self.assertEqual(self.main_window.image_progress_bar.value(), 40)
+        
+        self.main_window.update_image_progress(5, 5)
+        self.assertEqual(self.main_window.image_progress_bar.value(), 100)
+    
     def test_log_message(self):
         """Test logging a message."""
         test_message = "Test log message"
@@ -246,26 +255,25 @@ class TestDanishAudioApp(unittest.TestCase):
     def test_unified_processing_finished(self):
         """Test unified processing finished callback."""
         test_results = "**hund**\n\n1. Hunden løber hurtigt. - The dog runs fast.\n\n---"
-        
-        # Set up pending sentence generation data that would be set during processing
         self.main_window.pending_sentence_generation = {
             'words': ['hund', 'kat'],
             'api_key': 'test-key',
             'cefr_level': 'B1'
         }
-        
+        self.main_window.final_sentence_results = test_results
+        # Simulate image URLs for the words
+        self.main_window.word_image_urls = {'hund': 'https://dictionary.langeek.co/assets/img/hund.jpg', 'kat': None}
         with patch('danish_audio_downloader.gui.app.QMessageBox.information') as mock_info:
-            self.main_window.unified_processing_finished(test_results)
-        
-        # Check that message box was shown
+            self.main_window.unified_processing_finished()
         mock_info.assert_called_once()
-        
-        # Check UI state reset
         self.assertEqual(self.main_window.app_state, "results_ready")
         self.assertEqual(self.main_window.action_button.text(), "Save as Anki CSV")
-        
-        # Check that results were set
         self.assertEqual(self.main_window.sentence_results.toPlainText(), test_results)
+        # Check that the image progress bar is at 0 or 100 (should not error)
+        self.main_window.update_image_progress(1, 2)
+        self.assertEqual(self.main_window.image_progress_bar.value(), 50)
+        self.main_window.update_image_progress(2, 2)
+        self.assertEqual(self.main_window.image_progress_bar.value(), 100)
     
     @patch('danish_audio_downloader.gui.app.QFileDialog.getSaveFileName')
     @patch('danish_audio_downloader.gui.app.QMessageBox.warning')
@@ -376,7 +384,7 @@ class TestDanishAudioApp(unittest.TestCase):
         """Test that the dynamic action button changes states correctly."""
         # Initial state should be idle
         self.assertEqual(self.main_window.app_state, "idle")
-        self.assertEqual(self.main_window.action_button.text(), "Process Words (Audio + Sentences)")
+        self.assertEqual(self.main_window.action_button.text(), "Process Words (Audio + Sentences + Images)")
         
         # Test transition to processing state
         self.main_window.update_button_state("processing")
@@ -391,7 +399,7 @@ class TestDanishAudioApp(unittest.TestCase):
         # Test transition back to idle
         self.main_window.update_button_state("idle")
         self.assertEqual(self.main_window.app_state, "idle")
-        self.assertEqual(self.main_window.action_button.text(), "Process Words (Audio + Sentences)")
+        self.assertEqual(self.main_window.action_button.text(), "Process Words (Audio + Sentences + Images)")
     
     def test_action_button_handler(self):
         """Test that the action button handler calls the correct methods based on state."""

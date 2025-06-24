@@ -5,7 +5,6 @@ include requirements-test.txt
 include pytest.ini
 include app_icon.icns
 recursive-include src *
-recursive-include test_data *
 recursive-include docs *
 recursive-exclude * __pycache__
 recursive-exclude * *.py[co]
