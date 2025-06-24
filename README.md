@@ -129,7 +129,7 @@ The app requests detailed grammar information from ChatGPT for each word in Dani
 #### Anki CSV Format
 The CSV export creates Anki-ready cards with these columns populated with real grammar data and Danish text throughout:
 - **Front (Eksempel med ord fjernet eller blankt)**: Sentence with word removed or blanked
-- **Front (Billede)**: Image placeholder (`<img src="myimage.jpg">`)
+- **Front (Billede)**: Image placeholder (`<image src="myimage.jpg">`)
 - **Front (Definition, grundform, osv.)**: Real Danish word type, gender, and definition
 - **Back (et enkelt ord/udtryk, uden kontekst)**: The target word
 - **- Hele sætningen (intakt)**: Complete sentence with word intact

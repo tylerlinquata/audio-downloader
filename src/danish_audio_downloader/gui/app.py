@@ -463,9 +463,9 @@ class DanishAudioApp(QMainWindow):
         for row in range(self.card_table.rowCount()):
             checkbox = self.card_table.cellWidget(row, 0)
             if checkbox and checkbox.isChecked():
-                # Get the edited values from the table (exclude preview columns 8 and 9)
+                # Get the edited values from the table (exclude preview columns 1 and 2)
                 card_data = []
-                for col in range(1, 8):  # Columns 1-7 (skip checkbox and preview columns)
+                for col in range(3, 10):  # Columns 3-9 (skip checkbox and preview columns 1-2)
                     item = self.card_table.item(row, col)
                     card_data.append(item.text() if item else "")
                 selected_cards.append(card_data)
@@ -483,17 +483,8 @@ class DanishAudioApp(QMainWindow):
             try:
                 with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
                     writer = csv.writer(csvfile)
-                    # Write header
-                    writer.writerow([
-                        'Front (Eksempel med ord fjernet eller blankt)',
-                        'Front (Billede)', 
-                        'Front (Definition, grundform, osv.)',
-                        'Back (et enkelt ord/udtryk, uden kontekst)',
-                        '- Hele sætningen (intakt)',
-                        '- Ekstra info (IPA, køn, bøjning)',
-                        '• Lav 2 kort?'
-                    ])
-                    # Write selected cards
+                    # Don't write header for Anki import - Anki doesn't expect headers
+                    # Write selected cards only
                     writer.writerows(selected_cards)
                 
                 # After successful CSV export, copy audio files to Anki
@@ -1033,17 +1024,8 @@ class DanishAudioApp(QMainWindow):
         # Write to CSV file
         with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
             writer = csv.writer(csvfile)
-            # Write header - Anki import format
-            writer.writerow([
-                'Front (Eksempel med ord fjernet eller blankt)',
-                'Front (Billede)', 
-                'Front (Definition, grundform, osv.)',
-                'Back (et enkelt ord/udtryk, uden kontekst)',
-                '- Hele sætningen (intakt)',
-                '- Ekstra info (IPA, køn, bøjning)',
-                '• Lav 2 kort?'
-            ])
-            # Write data
+            # Don't write header for Anki import - Anki doesn't expect headers
+            # Write data directly
             writer.writerows(csv_data)
         
         # After successful CSV export, copy audio files to Anki
@@ -1182,8 +1164,8 @@ class DanishAudioApp(QMainWindow):
             if hasattr(self, 'word_image_urls') and word in self.word_image_urls:
                 image_url = self.word_image_urls[word]
                 if image_url:
-                    return f'<img src="{image_url}">'
-            return '<img src="myimage.jpg">'  # Fallback placeholder
+                    return f'<image src="{image_url}">'
+            return '<image src="myimage.jpg">'  # Fallback placeholder
         
         # Initialize grammar info if not provided
         if grammar_info is None:
