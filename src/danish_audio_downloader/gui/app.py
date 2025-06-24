@@ -959,7 +959,8 @@ class DanishAudioApp(QMainWindow):
             'gender': '',
             'plural': '',
             'inflections': '',
-            'definition': ''
+            'definition': '',
+            'english_word': ''
         }
         
         # Look for grammar info section
@@ -996,6 +997,11 @@ class DanishAudioApp(QMainWindow):
             definition_match = re.search(r'Definition:\s*([^\n]+)', grammar_section)
             if definition_match:
                 grammar_info['definition'] = definition_match.group(1).strip()
+            
+            # Extract English word
+            english_word_match = re.search(r'English word:\s*([^\n]+)', grammar_section)
+            if english_word_match:
+                grammar_info['english_word'] = english_word_match.group(1).strip()
         
         return grammar_info
     
@@ -1114,7 +1120,7 @@ class DanishAudioApp(QMainWindow):
         cards.append([
             sentence1_no_word,                       # Front (Eksempel med ord fjernet eller blankt)
             get_image_url(word),                     # Front (Billede)
-            f'{word} {definition_text}',                         # Front (Definition, grundform, osv.)
+            f'{word} - {definition_text}',                         # Front (Definition, grundform, osv.)
             '',                                      # Back (et enkelt ord/udtryk, uden kontekst) - empty for card 2
             sentences[0],                            # - Hele sætningen (intakt)
             f'{grammar_details} [sound:{word}.mp3]', # - Ekstra info (IPA, køn, bøjning)

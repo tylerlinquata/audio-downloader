@@ -103,8 +103,10 @@ class ImageWorker(QThread):
         """Search for an image on langeek.co."""
         try:
             # Search using langeek direct API
+            self.update_signal.emit(f"Searching langeek for: {english_word}")
             result = self._search_langeek_direct(english_word)
             if result:
+                self.update_signal.emit(f"Langeek search successful: {result}")
                 return result
             
             # If no images found, log this but don't error
@@ -128,36 +130,61 @@ class ImageWorker(QThread):
                 'Connection': 'keep-alive'
             }
             
+            self.update_signal.emit(f"Making API request to: {api_url}")
             response = requests.get(api_url, headers=headers, timeout=10)
             response.raise_for_status()
             
             # Parse the JSON response
             data = response.json()
             
+            self.update_signal.emit(f"API response: {len(data) if isinstance(data, list) else 'Not a list'} results")
+            
             # Check if we got results
             if data and isinstance(data, list) and len(data) > 0:
                 # Look for the first result that has a photo
                 for item in data:
-                    if isinstance(item, dict) and 'id' in item:
-                        word_id = item['id']
-                        # Construct the image URL using the ID
-                        image_url = f"https://cdn.langeek.co/photo/{word_id}/original/file?type=jpeg"
+                    if isinstance(item, dict):
+                        # Check if the item has a translation with wordPhoto
+                        translation = item.get('translation', {})
+                        if translation and isinstance(translation, dict):
+                            word_photo = translation.get('wordPhoto')
+                            if word_photo and isinstance(word_photo, dict):
+                                photo_url = word_photo.get('photo')
+                                if photo_url:
+                                    # Verify the image exists by making a HEAD request
+                                    try:
+                                        self.update_signal.emit(f"Checking image URL: {photo_url}")
+                                        img_response = requests.head(photo_url, headers=headers, timeout=5)
+                                        self.update_signal.emit(f"Image check status: {img_response.status_code}")
+                                        if img_response.status_code == 200:
+                                            return photo_url
+                                    except Exception as e:
+                                        self.update_signal.emit(f"Image check failed: {str(e)}")
+                                        continue
                         
-                        # Verify the image exists by making a HEAD request
-                        try:
-                            img_response = requests.head(image_url, headers=headers, timeout=5)
-                            if img_response.status_code == 200:
-                                return image_url
-                        except:
-                            # If HEAD request fails, try with PNG
-                            try:
-                                png_url = f"https://cdn.langeek.co/photo/{word_id}/original/file?type=png"
-                                img_response = requests.head(png_url, headers=headers, timeout=5)
-                                if img_response.status_code == 200:
-                                    return png_url
-                            except:
-                                continue
+                        # Also check in translations.noun if main translation doesn't have photo
+                        translations = item.get('translations', {})
+                        if translations and isinstance(translations, dict):
+                            noun_translations = translations.get('noun', [])
+                            if noun_translations and isinstance(noun_translations, list):
+                                for noun_trans in noun_translations:
+                                    if isinstance(noun_trans, dict):
+                                        word_photo = noun_trans.get('wordPhoto')
+                                        if word_photo and isinstance(word_photo, dict):
+                                            photo_url = word_photo.get('photo')
+                                            if photo_url:
+                                                # Verify the image exists
+                                                try:
+                                                    self.update_signal.emit(f"Checking noun image URL: {photo_url}")
+                                                    img_response = requests.head(photo_url, headers=headers, timeout=5)
+                                                    self.update_signal.emit(f"Noun image check status: {img_response.status_code}")
+                                                    if img_response.status_code == 200:
+                                                        return photo_url
+                                                except Exception as e:
+                                                    self.update_signal.emit(f"Noun image check failed: {str(e)}")
+                                                    continue
             
+            self.update_signal.emit("No valid images found in API response")
             return None
             
         except Exception as e:

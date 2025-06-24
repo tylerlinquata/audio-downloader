@@ -52,6 +52,7 @@ class SentenceWorker(QThread):
    - If it's a verb: infinitive form and all conjugations
    - If it's an adjective: comparative and superlative forms
    - A brief Danish definition
+   - The main English translation
 
 2. **Example Sentences:**
    - Provide exactly 3 different example sentences using "{word}"
@@ -70,6 +71,7 @@ Gender: [en/et] (if noun)
 Plural: [plural form] (if noun)
 Inflections: [other forms, declensions, conjugations]
 Definition: [Danish definition/explanation]
+English word: [main English translation]
 
 **Example Sentences:**
 1. [Danish sentence using "{word}"] - [English translation]
@@ -114,40 +116,52 @@ Definition: [Danish definition/explanation]
             self.error_signal.emit(f"Failed to initialize OpenAI: {str(e)}")
 
     def _extract_english_translation(self, content: str) -> str:
-        """Extract the most common English translation from the ChatGPT response."""
+        """Extract the English translation from the ChatGPT response."""
         import re
         
-        # Look for patterns that might contain English translations
-        # First, try to find the first English translation from the example sentences
+        # First, look for the explicit "English word:" format
+        english_word_match = re.search(r'English word:\s*([^\n]+)', content, re.IGNORECASE)
+        if english_word_match:
+            english_word = english_word_match.group(1).strip()
+            # Clean up the word (remove any brackets, punctuation, etc.)
+            english_word = re.sub(r'[^\w\s]', '', english_word).strip().lower()
+            if english_word and len(english_word) > 1:
+                return english_word
+        
+        # Fallback: try to extract from the Definition field if available
+        definition_match = re.search(r'Definition:\s*([^\n]+)', content, re.IGNORECASE)
+        if definition_match:
+            definition = definition_match.group(1).strip()
+            # Remove any leading Danish word if present (like "mel: flour")
+            if ':' in definition:
+                definition = definition.split(':', 1)[1].strip()
+            # Extract the main English word (before any additional description)
+            words = definition.split()
+            if words:
+                # Take the first word and clean it up
+                main_word = words[0].strip('[]().,!?')
+                if len(main_word) > 2:
+                    return main_word.lower()
+        
+        # Last resort: analyze example sentences for frequent meaningful words
         sentence_pattern = r'\d+\.\s*[^-\n]+?\s*-\s*([^\n]+?)(?=\n\d+\.|\n\n|\Z)'
         matches = re.findall(sentence_pattern, content, re.DOTALL)
         
         if matches:
-            # Get the first English translation and extract the main word
-            first_translation = matches[0].strip()
-            # Remove articles and get the main noun/word
-            words = first_translation.lower().split()
-            # Filter out common articles, prepositions, etc.
-            filter_words = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'to', 'of', 'in', 'on', 'at', 'by', 'for', 'with', 'from'}
-            content_words = [w for w in words if w not in filter_words and len(w) > 2]
-            if content_words:
-                return content_words[0]  # Return the first meaningful word
-        
-        # Fallback: look for definition patterns
-        definition_patterns = [
-            r'Definition:\s*([^\n]+)',
-            r'Definition:\s*\[([^\]]+)\]',
-        ]
-        
-        for pattern in definition_patterns:
-            match = re.search(pattern, content, re.IGNORECASE)
-            if match:
-                definition = match.group(1).strip()
-                # Extract English words from the definition
-                words = definition.lower().split()
+            # Analyze all translations to find the most likely main word
+            word_frequency = {}
+            filter_words = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'to', 'of', 'in', 'on', 'at', 'by', 'for', 'with', 'from', 'and', 'or', 'but', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'my', 'your', 'his', 'her', 'its', 'our', 'their'}
+            
+            for translation in matches:
+                words = re.findall(r'\b[a-zA-Z]+\b', translation.lower())
                 content_words = [w for w in words if w not in filter_words and len(w) > 2]
-                if content_words:
-                    return content_words[0]
+                for word in content_words:
+                    word_frequency[word] = word_frequency.get(word, 0) + 1
+            
+            # Return the most frequent meaningful word
+            if word_frequency:
+                most_common_word = max(word_frequency, key=word_frequency.get)
+                return most_common_word
         
         return ""
 
