@@ -37,7 +37,7 @@ class TestDanishAudioApp(unittest.TestCase):
         self.main_window = DanishAudioApp()
         
         # Mock QSettings to avoid writing to actual system settings
-        self.settings_patcher = patch.object(self.main_window, 'settings', spec=QSettings)
+        self.settings_patcher = patch.object(self.main_window.settings_manager, 'settings', spec=QSettings)
         self.mock_settings = self.settings_patcher.start()
         
     def tearDown(self):
@@ -54,62 +54,65 @@ class TestDanishAudioApp(unittest.TestCase):
     
     def test_tabs_creation(self):
         """Test that all tabs are created correctly."""
-        # Should have 2 tabs: Process Words, Settings
-        self.assertEqual(self.main_window.tabs.count(), 2)
+        # Should have 3 tabs: Process Words, Settings, Review Cards
+        self.assertEqual(self.main_window.tabs.count(), 3)
         
         # Check tab titles
         tab_titles = []
         for i in range(self.main_window.tabs.count()):
             tab_titles.append(self.main_window.tabs.tabText(i))
         
-        expected_titles = ["Process Words", "Settings"]
+        expected_titles = ["Process Words", "Settings", "Review Cards"]
         self.assertEqual(tab_titles, expected_titles)
     
     def test_main_tab_widgets(self):
         """Test that main tab widgets are created correctly."""
-        # Check that essential widgets exist
-        self.assertIsNotNone(self.main_window.word_input)
-        self.assertIsNotNone(self.main_window.audio_progress_bar)
-        self.assertIsNotNone(self.main_window.sentence_progress_bar)
-        self.assertIsNotNone(self.main_window.image_progress_bar)
-        self.assertIsNotNone(self.main_window.log_output)
-        self.assertIsNotNone(self.main_window.action_button)
-        self.assertIsNotNone(self.main_window.sentence_results)
+        # Check that essential widgets exist in the main tab
+        main_tab = self.main_window.main_tab
+        self.assertIsNotNone(main_tab.word_input)
+        self.assertIsNotNone(main_tab.audio_progress_bar)
+        self.assertIsNotNone(main_tab.sentence_progress_bar)
+        self.assertIsNotNone(main_tab.image_progress_bar)
+        self.assertIsNotNone(main_tab.log_output)
+        self.assertIsNotNone(main_tab.action_button)
+        self.assertIsNotNone(main_tab.sentence_results)
         
         # Check initial states
-        self.assertEqual(self.main_window.app_state, "idle")
+        self.assertEqual(main_tab.app_state, "idle")
     
     def test_settings_tab_widgets(self):
         """Test that settings tab widgets are created correctly."""
-        # Check that essential widgets exist
-        self.assertIsNotNone(self.main_window.output_dir_input)
-        self.assertIsNotNone(self.main_window.anki_dir_input)
-        self.assertIsNotNone(self.main_window.settings_api_key_input)
-        self.assertIsNotNone(self.main_window.cefr_combo)
+        # Check that essential widgets exist in the settings tab
+        settings_tab = self.main_window.settings_tab
+        self.assertIsNotNone(settings_tab.output_dir_input)
+        self.assertIsNotNone(settings_tab.anki_dir_input)
+        self.assertIsNotNone(settings_tab.api_key_input)
+        self.assertIsNotNone(settings_tab.cefr_combo)
         
         # Check default values
-        self.assertTrue(self.main_window.output_dir_input.text().endswith("danish_pronunciations"))
-        self.assertTrue("collection.media" in self.main_window.anki_dir_input.text())
-        self.assertEqual(self.main_window.cefr_combo.currentText(), "B1")
-    @patch('danish_audio_downloader.gui.app.QFileDialog.getExistingDirectory')
+        settings_tab = self.main_window.settings_tab
+        self.assertTrue(settings_tab.output_dir_input.text().endswith("danish_pronunciations"))
+        self.assertTrue("collection.media" in settings_tab.anki_dir_input.text())
+        self.assertEqual(settings_tab.cefr_combo.currentText(), "B1")
+    @patch('danish_audio_downloader.gui.widgets.settings_tab.QFileDialog.getExistingDirectory')
     def test_browse_output_dir(self, mock_dir_dialog):
         """Test browsing for output directory."""
         test_dir = "/tmp/test_output"
         mock_dir_dialog.return_value = test_dir
         
-        self.main_window.browse_output_dir()
+        self.main_window.settings_tab._browse_output_dir()
         
-        self.assertEqual(self.main_window.output_dir_input.text(), test_dir)
+        self.assertEqual(self.main_window.settings_tab.output_dir_input.text(), test_dir)
     
-    @patch('danish_audio_downloader.gui.app.QFileDialog.getExistingDirectory')
+    @patch('danish_audio_downloader.gui.widgets.settings_tab.QFileDialog.getExistingDirectory')
     def test_browse_anki_dir(self, mock_dir_dialog):
         """Test browsing for Anki directory."""
         test_dir = "/tmp/test_anki"
         mock_dir_dialog.return_value = test_dir
         
-        self.main_window.browse_anki_dir()
+        self.main_window.settings_tab._browse_anki_dir()
         
-        self.assertEqual(self.main_window.anki_dir_input.text(), test_dir)
+        self.assertEqual(self.main_window.settings_tab.anki_dir_input.text(), test_dir)
     
     def test_save_settings(self):
         """Test saving settings."""
