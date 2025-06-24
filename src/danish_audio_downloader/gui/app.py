@@ -32,6 +32,7 @@ class DanishAudioApp(QMainWindow):
         # Initialize processing state
         self.pending_sentence_generation = {}
         self.final_sentence_results = ""
+        self.structured_word_data = []  # Store structured data from sentence worker
         
         # Set up the UI
         self.init_ui()
@@ -162,14 +163,19 @@ class DanishAudioApp(QMainWindow):
         self.sentence_worker.error_signal.connect(self._sentence_generation_error)
         self.sentence_worker.start()
     
-    def _sentence_generation_finished(self, results, word_translations):
+    def _sentence_generation_finished(self, word_data_list, word_translations):
         """Handle completion of sentence generation and start image fetching."""
-        self.main_tab.set_results(results)
+        # Store the structured data
+        self.structured_word_data = word_data_list
+        
+        # Format for display in the results area
+        formatted_results = self._format_word_data_for_display(word_data_list)
+        self.main_tab.set_results(formatted_results)
         self.main_tab.log_message("\n=== Sentence Generation Complete ===")
         self.main_tab.log_message(f"Generated sentences for {len(word_translations)} words")
         
-        # Store the sentence results for final completion
-        self.final_sentence_results = results
+        # Store the formatted sentence results for backward compatibility
+        self.final_sentence_results = formatted_results
         
         # Start image fetching phase
         self._start_image_fetching_phase(word_translations)
@@ -198,6 +204,23 @@ class DanishAudioApp(QMainWindow):
         
         # Complete the unified processing
         self._unified_processing_finished()
+    def _format_word_data_for_display(self, word_data_list):
+        """Format structured word data for display in the results area."""
+        formatted_blocks = []
+        
+        for word_data in word_data_list:
+            if word_data.get('error'):
+                # Handle error cases
+                word = word_data.get('word', 'Unknown')
+                formatted_blocks.append(f"**{word}**\n\nError: {word_data['error']}\n\n---")
+            else:
+                # Use the existing formatting method from sentence_worker
+                from ..core.sentence_worker import SentenceWorker
+                worker = SentenceWorker([], "", "")  # Temporary instance for formatting
+                formatted_content = worker._format_word_data(word_data)
+                formatted_blocks.append(formatted_content)
+        
+        return "\n\n".join(formatted_blocks)
     
     def _image_fetching_error(self, error_msg):
         """Handle errors in image fetching."""
@@ -218,7 +241,14 @@ class DanishAudioApp(QMainWindow):
         
         # Generate cards for review
         try:
-            cards_data = self.card_processor.generate_cards_for_review(self.main_tab.get_results())
+            # Use structured data (no fallback - structured data should always be available)
+            if self.structured_word_data:
+                cards_data = self.card_processor.generate_cards_from_structured_data(self.structured_word_data)
+            else:
+                # This should not happen in normal operation since we always generate structured data
+                self.main_tab.log_message("Error: No structured data available for card generation.")
+                QMessageBox.warning(self, "Error", "No structured data available for card generation. Please re-run the sentence generation.")
+                return
             if cards_data:
                 self.main_tab.log_message(f"Generated {len(cards_data)} cards for review.")
                 
@@ -293,8 +323,8 @@ class DanishAudioApp(QMainWindow):
     
     def _save_sentence_results_csv(self):
         """Save the generated sentences to a CSV file."""
-        results_text = self.main_tab.get_results()
-        if not results_text.strip():
+        # Check if we have structured data
+        if not self.structured_word_data:
             QMessageBox.warning(self, "No Results", "No sentences to save.")
             return
         
@@ -307,7 +337,8 @@ class DanishAudioApp(QMainWindow):
         if file_path:
             try:
                 settings = self.settings_tab.get_settings()
-                csv_data = self.card_processor.export_sentences_to_csv(results_text, file_path)
+                # Use the new method that works with structured data
+                csv_data = self.card_processor.export_structured_data_to_csv(self.structured_word_data, file_path)
                 
                 # Copy audio files to Anki
                 copy_result = self.card_processor.copy_audio_files_to_anki(

@@ -4,10 +4,12 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
                             QTableWidget, QTableWidgetItem, QLabel, QPushButton,
                             QCheckBox, QHeaderView, QAbstractItemView,
                             QFileDialog, QMessageBox)
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QUrl
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 import csv
+import requests
+from io import BytesIO
 
 
 class ImageLoader(QThread):
@@ -19,34 +21,42 @@ class ImageLoader(QThread):
         self.row = row
         self.col = col
         self.url = url
-        self.network_manager = None
     
     def run(self):
         """Load image from URL."""
         try:
-            self.network_manager = QNetworkAccessManager()
-            request = QNetworkRequest()
-            request.setUrl(self.url)
-            request.setRawHeader(b'User-Agent', b'Mozilla/5.0 (compatible)')
+            # Validate URL
+            if not self.url or not isinstance(self.url, str):
+                print(f"Error loading image: Invalid URL: {self.url}")
+                return
+                
+            # Use requests library instead of Qt networking to avoid Qt object lifecycle issues
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (compatible)',
+                'Accept': 'image/*,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+            }
             
-            reply = self.network_manager.get(request)
+            response = requests.get(self.url, headers=headers, timeout=10, stream=True)
+            response.raise_for_status()
             
-            # Wait for the request to finish
-            while not reply.isFinished():
-                self.msleep(10)
+            # Read the image data
+            image_data = BytesIO(response.content)
+            pixmap = QPixmap()
             
-            if reply.error() == QNetworkReply.NoError:
-                data = reply.readAll()
-                pixmap = QPixmap()
-                if pixmap.loadFromData(data):
-                    # Scale the image to fit the cell
-                    scaled_pixmap = pixmap.scaled(90, 70, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    self.image_loaded.emit(self.row, self.col, scaled_pixmap)
-            
-            reply.deleteLater()
-            
+            if pixmap.loadFromData(image_data.getvalue()):
+                # Scale the image to fit the cell
+                scaled_pixmap = pixmap.scaled(90, 70, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                self.image_loaded.emit(self.row, self.col, scaled_pixmap)
+            else:
+                print(f"Failed to load image data from {self.url}")
+                
+        except requests.exceptions.RequestException as e:
+            print(f"Network error loading image from '{self.url}': {e}")
         except Exception as e:
-            print(f"Error loading image: {e}")
+            print(f"Error loading image from URL '{self.url}': {e}")
+            print(f"URL type: {type(self.url)}")
+            print(f"URL value: {repr(self.url)}")
 
 
 class ReviewTab(QWidget):
@@ -184,7 +194,7 @@ class ReviewTab(QWidget):
             self.card_table.setCellWidget(row, 0, checkbox)
             
             # Column 1: Preview Image
-            if image_url:
+            if image_url and isinstance(image_url, str) and image_url.strip():
                 image_label = QLabel()
                 image_label.setAlignment(Qt.AlignCenter)
                 image_label.setText("🖼️ Loading...")

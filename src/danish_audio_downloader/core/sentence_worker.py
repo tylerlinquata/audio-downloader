@@ -3,7 +3,8 @@ Worker thread for generating example sentences using ChatGPT.
 """
 
 import time
-from typing import List
+import json
+from typing import List, Dict, Optional
 from PyQt5.QtCore import QThread, pyqtSignal
 import openai
 
@@ -14,7 +15,7 @@ class SentenceWorker(QThread):
     """Worker thread for generating example sentences using ChatGPT."""
     update_signal = pyqtSignal(str)
     progress_signal = pyqtSignal(int, int)  # current, total
-    finished_signal = pyqtSignal(str, dict)  # generated sentences, word translations
+    finished_signal = pyqtSignal(list, dict)  # word_data_list, word_translations
     error_signal = pyqtSignal(str)  # error message
 
     def __init__(self, words: List[str], cefr_level: str, api_key: str) -> None:
@@ -31,7 +32,7 @@ class SentenceWorker(QThread):
             openai.api_key = self.api_key
             client = openai.OpenAI(api_key=self.api_key)
             
-            all_sentences = []
+            word_data_list = []  # Store structured data instead of formatted strings
             word_translations = {}  # Track English translations for image fetching
             total_words = len(self.words)
             
@@ -42,68 +43,79 @@ class SentenceWorker(QThread):
                 self.update_signal.emit(f"Generating sentences for: {word}")
                 self.progress_signal.emit(i + 1, total_words)
                 
-                # Create the prompt
-                prompt = f"""For the Danish word "{word}", please provide:
+                # Create the prompt for structured JSON response
+                prompt = f"""For the Danish word "{word}", please provide detailed language information and example sentences.
 
-1. **Grammar Information (in Danish):**
-   - IPA pronunciation (in slashes like /pronunciation/)
-   - Word type in Danish (substantiv, verbum, adjektiv, etc.)
-   - If it's a noun: gender (en/et) and plural forms
-   - If it's a verb: infinitive form and all conjugations
-   - If it's an adjective: comparative and superlative forms
-   - A brief Danish definition
-   - The main English translation
+Return your response as valid JSON in this exact format:
+{{
+    "word": "{word}",
+    "pronunciation": "/pronunciation/",
+    "word_type": "substantiv|verbum|adjektiv|etc",
+    "gender": "en|et|null",
+    "plural": "plural form or null",
+    "inflections": "other forms, declensions, conjugations",
+    "danish_definition": "brief Danish definition",
+    "english_translation": "main English translation",
+    "example_sentences": [
+        {{
+            "danish": "Danish sentence using {word}",
+            "english": "English translation"
+        }},
+        {{
+            "danish": "Danish sentence using {word}",
+            "english": "English translation"
+        }},
+        {{
+            "danish": "Danish sentence using {word}",
+            "english": "English translation"
+        }}
+    ]
+}}
 
-2. **Example Sentences:**
-   - Provide exactly 3 different example sentences using "{word}"
-   - Use the exact word "{word}" in each sentence (not inflected forms)
-   - Make sentences appropriate for {self.cefr_level} level
-   - Provide English translations
-   - Make sure sentences show different contexts/uses
-
-Format your response exactly like this:
-**{word}**
-
-**Grammar Info:**
-IPA: /pronunciation/
-Type: [substantiv/verbum/adjektiv/etc.]
-Gender: [en/et] (if noun)
-Plural: [plural form] (if noun)
-Inflections: [other forms, declensions, conjugations]
-Definition: [Danish definition/explanation]
-English word: [main English translation]
-
-**Example Sentences:**
-1. [Danish sentence using "{word}"] - [English translation]
-2. [Danish sentence using "{word}"] - [English translation]  
-3. [Danish sentence using "{word}"] - [English translation]
-
----"""
+Requirements:
+- Use the exact word "{word}" in each Danish sentence (not inflected forms)
+- Make sentences appropriate for {self.cefr_level} level
+- Provide 3 different example sentences showing different contexts/uses
+- Return ONLY valid JSON, no additional text or formatting"""
                 
                 try:
                     # Make API call
                     response = client.chat.completions.create(
                         model=AppConfig.OPENAI_MODEL,
                         messages=[
-                            {"role": "system", "content": "You are a helpful Danish language teacher who provides accurate example sentences and usage tips for Danish words."},
+                            {"role": "system", "content": "You are a helpful Danish language teacher. Always respond with valid JSON only, no additional text or formatting."},
                             {"role": "user", "content": prompt}
                         ],
                         max_tokens=AppConfig.OPENAI_MAX_TOKENS,
                         temperature=AppConfig.OPENAI_TEMPERATURE
                     )
                     
-                    sentence_content = response.choices[0].message.content
+                    # Parse JSON response
+                    json_content = response.choices[0].message.content.strip()
+                    word_data = self._parse_response(json_content)
                     
-                    # Ensure the response ends with the separator
-                    if not sentence_content.strip().endswith('---'):
-                        sentence_content = sentence_content.rstrip() + '\n\n---'
-                    
-                    all_sentences.append(sentence_content)
-                    
-                    # Extract English translation for image fetching
-                    english_translation = self._extract_english_translation(sentence_content)
-                    if english_translation:
-                        word_translations[word] = english_translation
+                    if word_data:
+                        # Store the structured data directly
+                        word_data_list.append(word_data)
+                        
+                        # Store English translation for image fetching
+                        if word_data.get('english_translation'):
+                            word_translations[word] = word_data['english_translation'].lower().strip()
+                    else:
+                        # Fallback with error data structure
+                        error_data = {
+                            'word': word,
+                            'error': 'Could not parse response for this word',
+                            'pronunciation': '',
+                            'word_type': '',
+                            'gender': '',
+                            'plural': '',
+                            'inflections': '',
+                            'danish_definition': '',
+                            'english_translation': '',
+                            'example_sentences': []
+                        }
+                        word_data_list.append(error_data)
                     
                     # Add a small delay to respect rate limits
                     time.sleep(AppConfig.REQUEST_DELAY)
@@ -111,64 +123,98 @@ English word: [main English translation]
                 except Exception as e:
                     error_msg = f"Error generating sentences for '{word}': {str(e)}"
                     self.update_signal.emit(error_msg)
-                    all_sentences.append(f"**{word}**\n\nError: Could not generate sentences for this word.\n\n---")
+                    # Add error data structure
+                    error_data = {
+                        'word': word,
+                        'error': f'Could not generate sentences for this word: {str(e)}',
+                        'pronunciation': '',
+                        'word_type': '',
+                        'gender': '',
+                        'plural': '',
+                        'inflections': '',
+                        'danish_definition': '',
+                        'english_translation': '',
+                        'example_sentences': []
+                    }
+                    word_data_list.append(error_data)
             
             if not self.abort_flag:
-                final_result = "\n\n".join(all_sentences)
-                self.finished_signal.emit(final_result, word_translations)
+                self.finished_signal.emit(word_data_list, word_translations)
             
         except Exception as e:
             self.error_signal.emit(f"Failed to initialize OpenAI: {str(e)}")
 
-    def _extract_english_translation(self, content: str) -> str:
-        """Extract the English translation from the ChatGPT response."""
-        import re
-        
-        # First, look for the explicit "English word:" format
-        english_word_match = re.search(r'English word:\s*([^\n]+)', content, re.IGNORECASE)
-        if english_word_match:
-            english_word = english_word_match.group(1).strip()
-            # Clean up the word (remove any brackets, punctuation, etc.)
-            english_word = re.sub(r'[^\w\s]', '', english_word).strip().lower()
-            if english_word and len(english_word) > 1:
-                return english_word
-        
-        # Fallback: try to extract from the Definition field if available
-        definition_match = re.search(r'Definition:\s*([^\n]+)', content, re.IGNORECASE)
-        if definition_match:
-            definition = definition_match.group(1).strip()
-            # Remove any leading Danish word if present (like "mel: flour")
-            if ':' in definition:
-                definition = definition.split(':', 1)[1].strip()
-            # Extract the main English word (before any additional description)
-            words = definition.split()
-            if words:
-                # Take the first word and clean it up
-                main_word = words[0].strip('[]().,!?')
-                if len(main_word) > 2:
-                    return main_word.lower()
-        
-        # Last resort: analyze example sentences for frequent meaningful words
-        sentence_pattern = r'\d+\.\s*[^-\n]+?\s*-\s*([^\n]+?)(?=\n\d+\.|\n\n|\Z)'
-        matches = re.findall(sentence_pattern, content, re.DOTALL)
-        
-        if matches:
-            # Analyze all translations to find the most likely main word
-            word_frequency = {}
-            filter_words = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'to', 'of', 'in', 'on', 'at', 'by', 'for', 'with', 'from', 'and', 'or', 'but', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'my', 'your', 'his', 'her', 'its', 'our', 'their'}
+    def _parse_response(self, json_content: str) -> Optional[Dict]:
+        """Parse the JSON response from ChatGPT."""
+        try:
+            # Remove any markdown formatting if present
+            content = json_content.strip()
+            if content.startswith('```json'):
+                content = content[7:]
+            if content.endswith('```'):
+                content = content[:-3]
+            content = content.strip()
             
-            for translation in matches:
-                words = re.findall(r'\b[a-zA-Z]+\b', translation.lower())
-                content_words = [w for w in words if w not in filter_words and len(w) > 2]
-                for word in content_words:
-                    word_frequency[word] = word_frequency.get(word, 0) + 1
-            
-            # Return the most frequent meaningful word
-            if word_frequency:
-                most_common_word = max(word_frequency, key=word_frequency.get)
-                return most_common_word
+            return json.loads(content)
+        except json.JSONDecodeError as e:
+            self.update_signal.emit(f"JSON parsing error: {str(e)}")
+            return None
+        except Exception as e:
+            self.update_signal.emit(f"Error parsing response: {str(e)}")
+            return None
+
+    def _format_word_data(self, word_data: Dict) -> str:
+        """Format the parsed word data for display."""
+        word = word_data.get('word', 'Unknown')
+        word_type = word_data.get('word_type', '').lower()
         
-        return ""
+        # Build grammar info section
+        grammar_parts = []
+        if word_data.get('pronunciation'):
+            grammar_parts.append(f"IPA: {word_data['pronunciation']}")
+        if word_data.get('word_type'):
+            grammar_parts.append(f"Type: {word_data['word_type']}")
+        
+        # Add type-specific information
+        if word_type in ['substantiv', 'noun']:
+            # For nouns: include gender and plural
+            if word_data.get('gender') and word_data['gender'].lower() != 'null':
+                grammar_parts.append(f"Gender: {word_data['gender']}")
+            if word_data.get('plural') and word_data['plural'].lower() != 'null':
+                grammar_parts.append(f"Plural: {word_data['plural']}")
+        elif word_type in ['verbum', 'verb']:
+            # For verbs: include inflections as "bøjning"
+            if word_data.get('inflections') and word_data['inflections'].lower() != 'null':
+                grammar_parts.append(f"Bøjning: {word_data['inflections']}")
+        elif word_type in ['adjektiv', 'adjective']:
+            # For adjectives: include comparative/superlative forms
+            if word_data.get('inflections') and word_data['inflections'].lower() != 'null':
+                grammar_parts.append(f"Bøjning: {word_data['inflections']}")
+        else:
+            # For other word types: include inflections if available
+            if word_data.get('inflections') and word_data['inflections'].lower() != 'null':
+                grammar_parts.append(f"Inflections: {word_data['inflections']}")
+        
+        if word_data.get('danish_definition'):
+            grammar_parts.append(f"Definition: {word_data['danish_definition']}")
+        if word_data.get('english_translation'):
+            grammar_parts.append(f"English word: {word_data['english_translation']}")
+        
+        grammar_info = '\n'.join(grammar_parts)
+        
+        # Build example sentences section
+        sentences = []
+        example_sentences = word_data.get('example_sentences', [])
+        for i, sentence in enumerate(example_sentences, 1):
+            if isinstance(sentence, dict) and 'danish' in sentence and 'english' in sentence:
+                sentences.append(f"{i}. {sentence['danish']} - {sentence['english']}")
+        
+        example_section = '\n'.join(sentences)
+        
+        # Combine everything
+        formatted = f"**{word}**\n\n**Grammar Info:**\n{grammar_info}\n\n**Example Sentences:**\n{example_section}\n\n---"
+        
+        return formatted
 
     def abort(self) -> None:
         """Abort the sentence generation process."""
