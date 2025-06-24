@@ -1257,7 +1257,7 @@ class DanishAudioApp(QMainWindow):
             return "Definition nødvendig"
     
     def _format_grammar_details(self, grammar_info):
-        """Format detailed grammar information in the format: /IPA/ – type, inflections."""
+        """Format detailed grammar information with IPA and word forms only (no English)."""
         parts = []
         
         # Add IPA if available
@@ -1267,22 +1267,42 @@ class DanishAudioApp(QMainWindow):
                 ipa = f'/{ipa}/'
             parts.append(ipa)
         
-        # Build the main grammar section
+        # Build the main grammar section - focus on Danish word forms only
         grammar_parts = []
         
-        # Add type (verbum, substantiv, etc.)
+        # Add type (verbum, substantiv, etc.) - keep Danish terms only
         if grammar_info.get('type'):
-            grammar_parts.append(grammar_info['type'])
+            word_type = grammar_info['type']
+            # Remove any English translations in parentheses
+            word_type = re.sub(r'\s*\([^)]*\)', '', word_type)
+            grammar_parts.append(word_type)
         
         # Add gender for nouns (if applicable)
         if grammar_info.get('gender'):
-            grammar_parts.append(f"køn: {grammar_info['gender']}")
+            gender = grammar_info['gender']
+            # Remove any English translations
+            gender = re.sub(r'\s*\([^)]*\)', '', gender)
+            grammar_parts.append(f"køn: {gender}")
         
-        # Add inflections or plural form
+        # Add inflections - focus on actual word forms, not explanations
         if grammar_info.get('inflections'):
-            grammar_parts.append(grammar_info['inflections'])
-        elif grammar_info.get('plural'):
-            grammar_parts.append(f"flertal: {grammar_info['plural']}")
+            inflections = grammar_info['inflections']
+            # Remove English explanations and keep only Danish word forms
+            # Remove anything in parentheses (usually English)
+            inflections = re.sub(r'\s*\([^)]*\)', '', inflections)
+            # Remove English explanations after dashes
+            inflections = re.sub(r'\s*[-–—]\s*[A-Za-z\s,]+$', '', inflections)
+            if inflections.strip():
+                grammar_parts.append(inflections.strip())
+        
+        # Add plural form if available and not already in inflections
+        if grammar_info.get('plural'):
+            plural = grammar_info['plural']
+            # Remove English explanations
+            plural = re.sub(r'\s*\([^)]*\)', '', plural)
+            plural = re.sub(r'\s*[-–—]\s*[A-Za-z\s,]+$', '', plural)
+            if plural.strip() and 'flertal' not in str(grammar_parts):
+                grammar_parts.append(f"flertal: {plural.strip()}")
         
         # Combine parts with proper formatting
         if parts and grammar_parts:
