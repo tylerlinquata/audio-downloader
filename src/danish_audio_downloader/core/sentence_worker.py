@@ -93,6 +93,11 @@ English word: [main English translation]
                     )
                     
                     sentence_content = response.choices[0].message.content
+                    
+                    # Ensure the response ends with the separator
+                    if not sentence_content.strip().endswith('---'):
+                        sentence_content = sentence_content.rstrip() + '\n\n---'
+                    
                     all_sentences.append(sentence_content)
                     
                     # Extract English translation for image fetching

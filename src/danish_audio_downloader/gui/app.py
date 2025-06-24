@@ -387,7 +387,7 @@ class DanishAudioApp(QMainWindow):
                 image_label.setAlignment(Qt.AlignCenter)
                 image_label.setText("🖼️ Loading...")
                 image_label.setToolTip(f"Image URL: {image_url}")
-                image_label.setStyleSheet("QLabel { background-color: rgb(144, 238, 144); padding: 5px; }")
+                image_label.setStyleSheet("QLabel { padding: 5px; }")
                 image_label.setMinimumSize(90, 70)
                 image_label.setMaximumSize(90, 70)
                 self.card_table.setCellWidget(row, 1, image_label)
@@ -398,7 +398,7 @@ class DanishAudioApp(QMainWindow):
             else:
                 no_image_label = QLabel("❌ No Image")
                 no_image_label.setAlignment(Qt.AlignCenter)
-                no_image_label.setStyleSheet("QLabel { background-color: rgb(211, 211, 211); padding: 5px; }")
+                no_image_label.setStyleSheet("QLabel { padding: 5px; }")
                 no_image_label.setMinimumSize(90, 70)
                 no_image_label.setMaximumSize(90, 70)
                 self.card_table.setCellWidget(row, 1, no_image_label)
@@ -407,7 +407,6 @@ class DanishAudioApp(QMainWindow):
             english_preview = QTableWidgetItem(f"🇬🇧 {english_word}")
             english_preview.setToolTip(f"Danish: {danish_word} → English: {english_word}")
             english_preview.setFlags(Qt.ItemIsEnabled)  # Read-only
-            english_preview.setBackground(QColor(173, 216, 230))  # Light blue
             self.card_table.setItem(row, 2, english_preview)
             
             # Card data columns (shifted by +2)
@@ -916,8 +915,9 @@ class DanishAudioApp(QMainWindow):
         # Parse the content to extract words and sentences
         cards_data = []
         
-        # Split by word blocks - looking for pattern like "**word**" at start of line, followed by content
-        word_blocks = re.split(r'\n\s*---\s*\n', content)
+        # Split by word blocks - handle both "---\n\n" between blocks and trailing "---"
+        # Use the same corrected pattern as the CSV export function
+        word_blocks = re.split(r'---(?:\s*\n\n|\s*$)', content)
         
         for block in word_blocks:
             block = block.strip()
@@ -980,8 +980,9 @@ class DanishAudioApp(QMainWindow):
         # Parse the content to extract words and sentences
         csv_data = []
         
-        # Split by word blocks - looking for pattern like "**word**" at start of line, followed by content
-        word_blocks = re.split(r'\n\s*---\s*\n', content)
+        # Split by word blocks - handle both "---\n\n" between blocks and trailing "---"
+        # First split by the main separator "---", then clean up each block
+        word_blocks = re.split(r'---(?:\s*\n\n|\s*$)', content)
         
         for block in word_blocks:
             block = block.strip()

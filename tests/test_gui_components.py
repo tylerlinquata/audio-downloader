@@ -331,17 +331,9 @@ class TestDanishAudioApp(unittest.TestCase):
                     # Check that CSV writer was created
                     mock_csv_writer.assert_called_once()
                     
-                    # Check that Anki header was written
-                    expected_header = [
-                        'Front (Eksempel med ord fjernet eller blankt)',
-                        'Front (Billede)', 
-                        'Front (Definition, grundform, osv.)',
-                        'Back (et enkelt ord/udtryk, uden kontekst)',
-                        '- Hele sætningen (intakt)',
-                        '- Ekstra info (IPA, køn, bøjning)',
-                        '• Lav 2 kort?'
-                    ]
-                    mock_writer_instance.writerow.assert_any_call(expected_header)
+                    # Check that no header was written (Anki import doesn't expect headers)
+                    # The writerow method should not be called for headers
+                    mock_writer_instance.writerow.assert_not_called()
                     
                     # Should have written 6 data rows (3 cards for hund + 3 cards for kat)
                     self.assertEqual(mock_writer_instance.writerows.call_count, 1)
@@ -350,7 +342,7 @@ class TestDanishAudioApp(unittest.TestCase):
                     
                     # Check first card (Card Type 1 for 'hund')
                     self.assertIn('___', written_data[0][0])  # Should have blank
-                    self.assertEqual(written_data[0][1], '<img src="myimage.jpg">')  # Image
+                    self.assertEqual(written_data[0][1], '<image src="myimage.jpg">')  # Image
                     self.assertTrue(isinstance(written_data[0][2], str) and written_data[0][2])  # Definition should not be empty
                     self.assertIn('hund', written_data[0][2])  # Definition should contain the word
                     self.assertEqual(written_data[0][3], 'hund')  # Back word
@@ -360,7 +352,7 @@ class TestDanishAudioApp(unittest.TestCase):
                     
                     # Check second card (Card Type 2 for 'hund') 
                     self.assertNotIn('hund', written_data[1][0].lower())  # Word should be removed
-                    self.assertEqual(written_data[1][1], '<img src="myimage.jpg">')  # Image
+                    self.assertEqual(written_data[1][1], '<image src="myimage.jpg">')  # Image
                     self.assertIn('hund', written_data[1][2])  # Should have definition
                     self.assertEqual(written_data[1][3], '')  # No back word for card 2
                     self.assertEqual(written_data[1][4], 'Min hund elsker at lege i parken.')  # Full sentence (should match Card 1)
@@ -369,7 +361,7 @@ class TestDanishAudioApp(unittest.TestCase):
                     
                     # Check third card (Card Type 3 for 'hund')
                     self.assertIn('___', written_data[2][0])  # Should have blank
-                    self.assertEqual(written_data[2][1], '<img src="myimage.jpg">')  # Image
+                    self.assertEqual(written_data[2][1], '<image src="myimage.jpg">')  # Image
                     self.assertTrue(isinstance(written_data[2][2], str) and written_data[2][2])  # Definition should not be empty
                     self.assertIn('hund', written_data[2][2])  # Definition should contain the word
                     self.assertEqual(written_data[2][3], 'hund')  # Back word
