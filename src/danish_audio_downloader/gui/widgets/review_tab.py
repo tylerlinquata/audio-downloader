@@ -1,5 +1,6 @@
 """Review tab widget for flashcard review and editing."""
 
+import os
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
                             QTableWidget, QTableWidgetItem, QLabel, QPushButton,
                             QCheckBox, QHeaderView, QAbstractItemView,
@@ -286,8 +287,11 @@ class ReviewTab(QWidget):
             return
         
         # Show file dialog to save CSV
+        default_dir = os.path.expanduser("~/Downloads")
+        default_filename = os.path.join(default_dir, "anki_cards.csv")
+        
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Anki CSV", "anki_cards.csv", "CSV Files (*.csv)"
+            self, "Save Anki CSV", default_filename, "CSV Files (*.csv)"
         )
         
         if file_path:

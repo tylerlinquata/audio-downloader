@@ -329,8 +329,13 @@ class DanishAudioApp(QMainWindow):
             return
         
         from PyQt5.QtWidgets import QFileDialog
+        
+        # Set default directory to Downloads folder on macOS
+        default_dir = os.path.expanduser("~/Downloads")
+        default_filename = os.path.join(default_dir, "danish_example_sentences.csv")
+        
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Sentence Results as CSV", "danish_example_sentences.csv", 
+            self, "Save Sentence Results as CSV", default_filename, 
             "CSV Files (*.csv);;All Files (*)"
         )
         
