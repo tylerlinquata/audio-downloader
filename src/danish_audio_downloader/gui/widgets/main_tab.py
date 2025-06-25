@@ -1,9 +1,10 @@
 """Main processing tab widget."""
 
+import re
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
                             QTextEdit, QProgressBar, QLabel, QPushButton)
 from PyQt5.QtGui import QFont
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import pyqtSignal, QTimer, QMimeData
 
 
 class MainTab(QWidget):
@@ -35,9 +36,23 @@ class MainTab(QWidget):
             "• Audio pronunciations\n"
             "• Example sentences with grammar info\n"
             "• Images from dictionary sources\n"
-            "• Anki-ready CSV export"
+            "• Anki-ready CSV export\n\n"
+            "Text is automatically cleaned and formatted as you type."
         )
         self.word_input.setMinimumHeight(120)
+        
+        # Override paste event to clean formatting
+        original_paste = self.word_input.insertFromMimeData
+        self.word_input.insertFromMimeData = self._on_paste
+        self._original_paste = original_paste
+        
+        # Connect text change event for other cleaning (less aggressive now)
+        self.word_input.textChanged.connect(self._auto_clean_text)
+        self._cleaning_in_progress = False  # Flag to prevent recursion
+        
+        # Also clean on focus lost for better UX
+        self.word_input.focusOutEvent = self._on_focus_out
+        
         word_layout.addWidget(self.word_input)
         
         word_group.setLayout(word_layout)
@@ -116,13 +131,136 @@ class MainTab(QWidget):
     
     def _request_process_words(self):
         """Parse words from input and emit processing request."""
-        word_text = self.word_input.toPlainText().strip()
+        word_text = self.word_input.toPlainText()
         if not word_text:
             # This should be handled by the main app with a message box
             return
-            
+        
+        # Text is already cleaned by auto-cleaning, just filter out empty lines
         words = [line.strip() for line in word_text.split('\n') if line.strip()]
-        self.process_words_requested.emit(words)
+        
+        if words:
+            self.process_words_requested.emit(words)
+    
+    def _clean_text_input(self, text):
+        """Clean text input by stripping formatting and converting to lowercase."""
+        if not text:
+            return ""
+        
+        # Strip all formatting and convert to lowercase
+        cleaned = text.strip().lower()
+        
+        # Remove any HTML tags or markup
+        cleaned = re.sub(r'<[^>]+>', '', cleaned)
+        
+        # Remove any markdown formatting (bold, italic, etc.)
+        cleaned = re.sub(r'[*_`~]', '', cleaned)
+        
+        # Normalize whitespace but preserve line breaks
+        cleaned = re.sub(r'[ \t]+', ' ', cleaned)  # Replace multiple spaces/tabs with single space
+        cleaned = re.sub(r'\n+', '\n', cleaned)   # Replace multiple newlines with single newline
+        
+        # Keep only valid Danish characters, spaces, and newlines
+        cleaned = re.sub(r'[^a-zA-ZæøåÆØÅ\-\'\s\n]', '', cleaned)
+        
+        return cleaned.strip()
+    
+    def _on_paste(self, source):
+        """Handle paste events and clean the pasted text."""
+        # Get the text from the clipboard
+        if source.hasText():
+            pasted_text = source.text()
+            
+            # Clean each line of the pasted text
+            cleaned_lines = []
+            for line in pasted_text.split('\n'):
+                cleaned_line = self._clean_text_input(line)
+                if cleaned_line:  # Only keep non-empty cleaned lines
+                    cleaned_lines.append(cleaned_line)
+            
+            cleaned_text = '\n'.join(cleaned_lines)
+            
+            # Create a new mime data object with cleaned text
+            cleaned_mime = QMimeData()
+            cleaned_mime.setText(cleaned_text)
+            
+            # Call the original paste method with cleaned data
+            self._original_paste(cleaned_mime)
+        else:
+            # If no text, use original paste behavior
+            self._original_paste(source)
+    
+    def _auto_clean_text(self):
+        """Automatically clean text - now mainly for converting to lowercase."""
+        if self._cleaning_in_progress:
+            return  # Prevent recursion
+        
+        # Get current text
+        current_text = self.word_input.toPlainText()
+        if not current_text:
+            return
+        
+        # Simple cleaning - mainly lowercase conversion for typed text
+        cleaned_lines = []
+        text_changed = False
+        
+        for line in current_text.split('\n'):
+            original_line = line
+            # Convert to lowercase if it's not already
+            if line != line.lower():
+                cleaned_line = line.lower()
+                text_changed = True
+            else:
+                cleaned_line = line
+            
+            cleaned_lines.append(cleaned_line)
+        
+        # Only update if text actually changed
+        if text_changed:
+            self._cleaning_in_progress = True
+            
+            # Get current cursor position
+            cursor = self.word_input.textCursor()
+            cursor_position = cursor.position()
+            
+            cleaned_text = '\n'.join(cleaned_lines)
+            
+            # Update the text
+            self.word_input.setPlainText(cleaned_text)
+            
+            # Restore cursor position
+            new_length = len(cleaned_text)
+            if cursor_position > new_length:
+                cursor_position = new_length
+            
+            cursor = self.word_input.textCursor()
+            cursor.setPosition(cursor_position)
+            self.word_input.setTextCursor(cursor)
+            
+            self._cleaning_in_progress = False
+    
+    def _on_focus_out(self, event):
+        """Perform thorough cleaning when user finishes editing."""
+        # Call the original focus out event first
+        QTextEdit.focusOutEvent(self.word_input, event)
+        
+        # Now do thorough cleaning
+        current_text = self.word_input.toPlainText()
+        if not current_text:
+            return
+        
+        # Clean each line thoroughly
+        cleaned_lines = []
+        for line in current_text.split('\n'):
+            cleaned_line = self._clean_text_input(line)
+            if cleaned_line:  # Only keep non-empty lines after thorough cleaning
+                cleaned_lines.append(cleaned_line)
+        
+        cleaned_text = '\n'.join(cleaned_lines)
+        
+        # Update if different
+        if cleaned_text != current_text:
+            self.word_input.setPlainText(cleaned_text)
     
     def update_button_state(self, new_state):
         """Update the dynamic button based on application state."""

@@ -77,9 +77,12 @@ class CardProcessor:
                 if isinstance(sentence_data, dict) and sentence_data.get('danish'):
                     sentences.append(sentence_data['danish'])
             
-            if len(sentences) >= 3:
-                # Generate the three card types for this word with structured grammar info
-                csv_data.extend(self._generate_anki_cards_from_structured_data(word, sentences[:3], word_data))
+            if len(sentences) >= 2:  # Changed from 3 to 2 to match card generation
+                # Generate the card types for this word with available sentences
+                if len(sentences) >= 3:
+                    csv_data.extend(self._generate_anki_cards_from_structured_data(word, sentences[:3], word_data))
+                else:
+                    csv_data.extend(self._generate_anki_cards_from_structured_data(word, sentences, word_data))
         
         # Write to CSV file
         with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
@@ -90,10 +93,10 @@ class CardProcessor:
         return csv_data
 
     def _generate_anki_cards_from_structured_data(self, word, sentences, word_data):
-        """Generate three card types for a word using structured data."""
+        """Generate card types for a word using structured data."""
         cards = []
         
-        if len(sentences) < 3:
+        if len(sentences) < 2:  # Need at least 2 sentences
             return cards
         
         # Extract grammar information from structured data
@@ -133,17 +136,30 @@ class CardProcessor:
             ''                                       # • Lav 2 kort? - empty for card 2
         ])
         
-        # Card Type 3: New sentence with blank
-        sentence2_with_blank = self._remove_word_from_sentence(sentences[1], word, use_blank=True)
-        cards.append([
-            sentence2_with_blank,                    # Front (Eksempel med ord fjernet eller blankt)
-            self._get_image_url(word),               # Front (Billede)
-            definition_clean,                        # Front (Definition, grundform, osv.)
-            word,                                    # Back (et enkelt ord/udtryk, uden kontekst)
-            sentences[1],                            # - Hele sætningen (intakt)
-            f'{grammar_details} [sound:{word}.mp3]', # - Ekstra info (IPA, køn, bøjning)
-            ''                                       # • Lav 2 kort? - empty for card 3
-        ])
+        # Card Type 3: New sentence with blank (only if we have 3 or more sentences)
+        if len(sentences) >= 3:
+            sentence2_with_blank = self._remove_word_from_sentence(sentences[1], word, use_blank=True)
+            cards.append([
+                sentence2_with_blank,                    # Front (Eksempel med ord fjernet eller blankt)
+                self._get_image_url(word),               # Front (Billede)
+                definition_clean,                        # Front (Definition, grundform, osv.)
+                word,                                    # Back (et enkelt ord/udtryk, uden kontekst)
+                sentences[1],                            # - Hele sætningen (intakt)
+                f'{grammar_details} [sound:{word}.mp3]', # - Ekstra info (IPA, køn, bøjning)
+                ''                                       # • Lav 2 kort? - empty for card 3
+            ])
+        elif len(sentences) >= 2:
+            # Use second sentence for card 3 if available
+            sentence2_with_blank = self._remove_word_from_sentence(sentences[1], word, use_blank=True)
+            cards.append([
+                sentence2_with_blank,                    # Front (Eksempel med ord fjernet eller blankt)
+                self._get_image_url(word),               # Front (Billede)
+                definition_clean,                        # Front (Definition, grundform, osv.)
+                word,                                    # Back (et enkelt ord/udtryk, uden kontekst)
+                sentences[1],                            # - Hele sætningen (intakt)
+                f'{grammar_details} [sound:{word}.mp3]', # - Ekstra info (IPA, køn, bøjning)
+                ''                                       # • Lav 2 kort? - empty for card 3
+            ])
         
         return cards
 
@@ -167,9 +183,14 @@ class CardProcessor:
                 if isinstance(sentence_data, dict) and sentence_data.get('danish'):
                     sentences.append(sentence_data['danish'])
             
-            if len(sentences) >= 3:
-                # Generate the three card types for this word with structured grammar info
-                word_cards = self._generate_anki_cards_from_structured_data(word, sentences[:3], word_data)
+            if len(sentences) >= 2:  # Changed from 3 to 2 to be more lenient
+                # Generate cards for this word with available sentences
+                if len(sentences) >= 3:
+                    # Full 3-card generation
+                    word_cards = self._generate_anki_cards_from_structured_data(word, sentences[:3], word_data)
+                else:
+                    # Generate fewer cards with available sentences
+                    word_cards = self._generate_anki_cards_from_structured_data(word, sentences, word_data)
                 
                 # Add metadata for each card
                 english_translation = word_data.get('english_translation', 'Unknown')

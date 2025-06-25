@@ -55,7 +55,7 @@ Return your response as valid JSON in this exact format:
     "plural": "plural form or null",
     "inflections": "other forms, declensions, conjugations",
     "danish_definition": "brief Danish definition",
-    "english_translation": "main English translation",
+    "english_translation": "main English translation, it should be a single word. If the word has multiple meanings, provide the most common one.",
     "example_sentences": [
         {{
             "danish": "Danish sentence using {word}",
