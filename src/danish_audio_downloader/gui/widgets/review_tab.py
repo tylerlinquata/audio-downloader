@@ -1,6 +1,7 @@
 """Review tab widget for flashcard review and editing."""
 
 import os
+import re
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
                             QTableWidget, QTableWidgetItem, QLabel, QPushButton,
                             QCheckBox, QHeaderView, QAbstractItemView,
@@ -71,6 +72,7 @@ class ReviewTab(QWidget):
         super().__init__()
         self.generated_cards = []
         self.image_loaders = []
+        self.word_to_rows = {}  # Map Danish words to list of row indices
         self.setup_ui()
     
     def setup_ui(self):
@@ -84,7 +86,8 @@ class ReviewTab(QWidget):
         instructions = QLabel(
             "Review and edit your generated flashcards below. You can modify any field or uncheck cards you don't want to include.\n"
             "Cards are generated in sets of 3 for each word: Fill-in-blank, Definition, and Additional sentence.\n\n"
-            "💡 The 'Preview' columns show the source image and English translation for reference only - they are NOT included in your Anki cards."
+            "💡 The 'Preview' columns show the source image and English translation for reference only - they are NOT included in your Anki cards.\n"
+            "🔄 When you change an image URL, all cards for the same Danish word will be updated automatically."
         )
         instructions.setWordWrap(True)
         instructions.setStyleSheet(
@@ -131,6 +134,9 @@ class ReviewTab(QWidget):
         
         table_layout.addWidget(self.card_table)
         
+        # Connect table item changed signal to handle image URL updates
+        self.card_table.itemChanged.connect(self._on_table_item_changed)
+        
         # Add status label
         self.card_status_label = QLabel("No cards loaded")
         self.card_status_label.setStyleSheet("QLabel { padding: 5px; font-weight: bold; }")
@@ -173,6 +179,7 @@ class ReviewTab(QWidget):
         """Populate the review table with generated cards."""
         self.generated_cards = cards_data
         self.card_table.setRowCount(len(cards_data))
+        self.word_to_rows = {}  # Reset the word-to-rows mapping
         
         for row, card_info in enumerate(cards_data):
             # Extract card data and metadata
@@ -187,6 +194,11 @@ class ReviewTab(QWidget):
                 danish_word = "Unknown"
                 english_word = "Unknown"
                 image_url = None
+            
+            # Build mapping of Danish words to row indices
+            if danish_word not in self.word_to_rows:
+                self.word_to_rows[danish_word] = []
+            self.word_to_rows[danish_word].append(row)
             
             # Include checkbox
             checkbox = QCheckBox()
@@ -239,6 +251,136 @@ class ReviewTab(QWidget):
         if widget and isinstance(widget, QLabel):
             widget.setPixmap(pixmap)
             widget.setText("")  # Clear the loading text
+    
+    def _on_table_item_changed(self, item):
+        """Handle changes to table items and refresh image preview if image URL changed."""
+        if not item:
+            return
+        
+        row = item.row()
+        col = item.column()
+        
+        # Check if the changed item is in the "Front (Image)" column (column 4)
+        if col == 4:
+            new_image_url = item.text().strip()
+            
+            # Auto-wrap plain URLs with <image> tag
+            formatted_url = self._format_image_url_for_anki(new_image_url)
+            if formatted_url != new_image_url:
+                # Update the cell with the formatted URL (this will prevent infinite recursion
+                # because we're setting the same text that would result from this formatting)
+                item.setText(formatted_url)
+                new_image_url = formatted_url
+            
+            # Update all cards for the same Danish word
+            self._update_image_for_word(row, new_image_url)
+    
+    def _update_image_for_word(self, changed_row, new_image_url):
+        """Update the image URL for all cards belonging to the same Danish word."""
+        # Find the Danish word for the changed row
+        danish_word = self._get_danish_word_for_row(changed_row)
+        if not danish_word or danish_word == "Unknown":
+            # If we can't identify the word, just update the single row
+            self._refresh_image_preview(changed_row, new_image_url)
+            return
+        
+        # Get all rows for this Danish word
+        word_rows = self.word_to_rows.get(danish_word, [changed_row])
+        
+        # Temporarily disconnect the itemChanged signal to prevent recursive calls
+        self.card_table.itemChanged.disconnect(self._on_table_item_changed)
+        
+        try:
+            # Update the Front (Image) column (column 4) for all cards of this word
+            for row in word_rows:
+                if row != changed_row:  # Skip the row that was just changed
+                    item = self.card_table.item(row, 4)
+                    if item:
+                        item.setText(new_image_url)
+                
+                # Refresh the image preview for all rows (including the changed one)
+                self._refresh_image_preview(row, new_image_url)
+        finally:
+            # Reconnect the signal
+            self.card_table.itemChanged.connect(self._on_table_item_changed)
+    
+    def _get_danish_word_for_row(self, row):
+        """Get the Danish word associated with a specific row."""
+        if row < len(self.generated_cards):
+            card_info = self.generated_cards[row]
+            if isinstance(card_info, dict):
+                return card_info.get('danish_word', "Unknown")
+        return "Unknown"
+    
+    def _refresh_image_preview(self, row, image_url):
+        """Refresh the image preview in column 1 for the given row with a new image URL."""
+        # Extract the actual image URL from the Anki image tag format
+        # Format: <image src="url"> or just the URL
+        actual_url = self._extract_image_url_from_anki_format(image_url)
+        
+        if actual_url and actual_url.strip():
+            # Create new loading label
+            image_label = QLabel()
+            image_label.setAlignment(Qt.AlignCenter)
+            image_label.setText("🖼️ Loading...")
+            image_label.setToolTip(f"Image URL: {actual_url}")
+            image_label.setStyleSheet("QLabel { padding: 5px; }")
+            image_label.setMinimumSize(90, 70)
+            image_label.setMaximumSize(90, 70)
+            self.card_table.setCellWidget(row, 1, image_label)
+            
+            # Load the new image
+            loader = ImageLoader(row, 1, actual_url)
+            loader.image_loaded.connect(self._on_image_loaded)
+            loader.start()
+            self.image_loaders.append(loader)
+        else:
+            # No valid URL, show "No Image" label
+            no_image_label = QLabel("❌ No Image")
+            no_image_label.setAlignment(Qt.AlignCenter)
+            no_image_label.setStyleSheet("QLabel { padding: 5px; }")
+            no_image_label.setMinimumSize(90, 70)
+            no_image_label.setMaximumSize(90, 70)
+            self.card_table.setCellWidget(row, 1, no_image_label)
+    
+    def _extract_image_url_from_anki_format(self, image_text):
+        """Extract the actual image URL from Anki image format or plain URL."""
+        if not image_text:
+            return None
+        
+        # Check if it's in Anki format: <image src="url">
+        match = re.search(r'<image\s+src="([^"]+)">', image_text)
+        if match:
+            return match.group(1)
+        
+        # Check if it's a plain URL (starts with http:// or https://)
+        if image_text.startswith(('http://', 'https://')):
+            return image_text
+        
+        # Return None if no valid URL found
+        return None
+    
+    def _format_image_url_for_anki(self, image_text):
+        """Format image URL for Anki by wrapping plain URLs with <image> tag."""
+        if not image_text:
+            return image_text
+        
+        image_text = image_text.strip()
+        
+        # If it's already in Anki format, return as-is
+        if re.match(r'<image\s+src="[^"]+">$', image_text):
+            return image_text
+        
+        # If it's a plain URL, wrap it with <image> tag
+        if image_text.startswith(('http://', 'https://')):
+            return f'<image src="{image_text}">'
+        
+        # For other formats (like local files), also wrap them
+        if image_text and not image_text.startswith('<'):
+            return f'<image src="{image_text}">'
+        
+        # Return as-is for any other cases
+        return image_text
     
     def _update_card_status(self):
         """Update the status label showing selected card count."""
@@ -318,5 +460,6 @@ class ReviewTab(QWidget):
         
         # Clear data
         self.generated_cards = []
+        self.word_to_rows = {}
         self.card_table.setRowCount(0)
         self.card_status_label.setText("No cards loaded")
