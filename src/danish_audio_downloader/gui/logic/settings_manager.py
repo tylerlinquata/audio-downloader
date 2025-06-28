@@ -1,5 +1,6 @@
 """Settings manager for persistent configuration."""
 
+import os
 from PyQt5.QtCore import QSettings
 
 
@@ -16,9 +17,13 @@ class SettingsManager:
     
     def load_settings(self):
         """Load settings from persistent storage."""
+        # Use safe defaults that expand to user directories
+        default_output = os.path.expanduser("~/Documents/danish_pronunciations")
+        default_anki = os.path.expanduser("~/Library/Application Support/Anki2/User 1/collection.media")
+        
         return {
-            'output_dir': self.settings.value("output_dir", ""),
-            'anki_dir': self.settings.value("anki_dir", ""),
+            'output_dir': self.settings.value("output_dir", default_output),
+            'anki_dir': self.settings.value("anki_dir", default_anki),
             'openai_api_key': self.settings.value("openai_api_key", ""),
             'cefr_level': self.settings.value("cefr_level", "B1")
         }

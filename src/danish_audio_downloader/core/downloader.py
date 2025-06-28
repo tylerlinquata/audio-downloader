@@ -19,16 +19,17 @@ class DanishAudioDownloader:
 
     def __init__(self, output_dir: str = "danish_pronunciations", anki_folder: str = "", signal_handler: Optional[Any] = None) -> None:
         """Initialize the downloader with the given output directory."""
-        self.output_dir = output_dir
-        self.anki_folder = anki_folder
+        # Expand user paths to handle ~ notation
+        self.output_dir = os.path.expanduser(output_dir)
+        self.anki_folder = os.path.expanduser(anki_folder) if anki_folder else ""
         self.signal = signal_handler
         self.base_url = AppConfig.BASE_URL
         self.session = requests.Session()
         self.session.headers.update(HTTPConfig.HEADERS)
         
         # Create output directory if it doesn't exist
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+        if not os.path.exists(self.output_dir):
+            os.makedirs(self.output_dir)
 
     def log(self, message: str) -> None:
         """Log a message to the GUI."""

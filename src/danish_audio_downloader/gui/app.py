@@ -99,10 +99,17 @@ class DanishAudioApp(QMainWindow):
         output_dir = settings.get('output_dir', '')
         anki_folder = settings.get('anki_dir', '')
         
+        # Expand user directory paths
+        if output_dir:
+            output_dir = os.path.expanduser(output_dir)
+        if anki_folder:
+            anki_folder = os.path.expanduser(anki_folder)
+        
         # Create directory if it doesn't exist
         if not os.path.exists(output_dir):
             try:
                 os.makedirs(output_dir)
+                self.main_tab.log_message(f"Created output directory: {output_dir}")
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Could not create output directory: {str(e)}")
                 return

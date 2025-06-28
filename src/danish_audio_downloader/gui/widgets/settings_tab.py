@@ -27,7 +27,8 @@ class SettingsTab(QWidget):
         
         # Output directory
         self.output_dir_input = QLineEdit()
-        self.output_dir_input.setText(os.path.abspath("danish_pronunciations"))
+        default_output_dir = os.path.expanduser("~/Documents/danish_pronunciations")
+        self.output_dir_input.setText(default_output_dir)
         browse_output_button = QPushButton("Browse...")
         browse_output_button.clicked.connect(self._browse_output_dir)
         

@@ -16,7 +16,7 @@ class AppConfig:
     APP_IDENTIFIER = "DanishAudioDownloader"
     
     # Default settings
-    DEFAULT_OUTPUT_DIR = "danish_pronunciations"
+    DEFAULT_OUTPUT_DIR = "~/Documents/danish_pronunciations"
     DEFAULT_ANKI_FOLDER = "~/Library/Application Support/Anki2/User 1/collection.media"
     DEFAULT_CEFR_LEVEL = "B1"
     
@@ -45,7 +45,8 @@ class AppConfig:
     
     def get_output_dir(self) -> str:
         """Get the output directory setting."""
-        return self.settings.value("output_dir", os.path.abspath(self.DEFAULT_OUTPUT_DIR))
+        default_path = os.path.expanduser(self.DEFAULT_OUTPUT_DIR)
+        return self.settings.value("output_dir", default_path)
     
     def set_output_dir(self, path: str) -> None:
         """Set the output directory setting."""

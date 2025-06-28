@@ -19,7 +19,11 @@ class CardProcessor:
     def copy_audio_files_to_anki(self, selected_cards, output_dir, anki_folder):
         """Copy audio files for selected cards to Anki media folder."""
         if not anki_folder or not os.path.exists(anki_folder):
-            return {"success": False, "message": "Anki media folder not found"}
+            return {"success": False, "message": "Anki media folder not found or not accessible"}
+        
+        # Expand user paths to handle ~ notation
+        output_dir = os.path.expanduser(output_dir) if output_dir else ""
+        anki_folder = os.path.expanduser(anki_folder) if anki_folder else ""
         
         if not output_dir or not os.path.exists(output_dir):
             return {"success": False, "message": "Output directory not found"}
@@ -45,10 +49,12 @@ class CardProcessor:
                 try:
                     shutil.copy2(source_file, dest_file)
                     copied_count += 1
+                except PermissionError:
+                    failed_copies.append(f"{word} (permission denied)")
                 except Exception as e:
-                    failed_copies.append(word)
+                    failed_copies.append(f"{word} ({str(e)})")
             else:
-                failed_copies.append(word)
+                failed_copies.append(f"{word} (source file not found)")
         
         return {
             "success": True,
