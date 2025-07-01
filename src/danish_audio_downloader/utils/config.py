@@ -25,9 +25,13 @@ class AppConfig:
     OPENAI_MAX_TOKENS = 800
     OPENAI_TEMPERATURE = 0.7
     
+    # Batch processing settings
+    BATCH_SIZE = 15  # Number of words to process per batch
+    BATCH_THRESHOLD = 20  # Use batch processing when word count is below this
+    
     # Download settings
     MAX_RETRIES = 3
-    REQUEST_DELAY = 1  # seconds between requests
+    REQUEST_DELAY = 1  # seconds between requests (legacy - now mainly for chunks)
     CHUNK_SIZE = 1024  # for file downloads
     MIN_AUDIO_FILE_SIZE = 1024  # minimum size for valid audio file
     
