@@ -1,10 +1,10 @@
 """
-Worker thread for downloading audio files.
+Worker thread for downloading audio files with concurrent processing.
 """
 
 from typing import List
 from PyQt5.QtCore import QThread, pyqtSignal
-from .downloader import DanishAudioDownloader
+from .concurrent_downloader import ConcurrentAudioDownloader
 
 
 class Worker(QThread):
@@ -22,8 +22,8 @@ class Worker(QThread):
         self.abort_flag = False
 
     def run(self) -> None:
-        """Run the download process."""
-        downloader = DanishAudioDownloader(
+        """Run the download process with concurrent processing."""
+        downloader = ConcurrentAudioDownloader(
             output_dir=self.output_dir,
             anki_folder=self.anki_folder,
             signal_handler=self

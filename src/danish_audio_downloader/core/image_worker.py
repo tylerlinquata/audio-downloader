@@ -33,7 +33,7 @@ class ImageWorker(QThread):
         self.abort_flag = False
 
     def run(self) -> None:
-        """Run the image fetching process."""
+        """Run the image fetching process with concurrent processing."""
         try:
             # Set up OpenAI client for missing translations
             openai.api_key = self.api_key
@@ -42,52 +42,102 @@ class ImageWorker(QThread):
             image_urls = {}
             total_words = len(self.word_translations)
             
-            self.update_signal.emit(f"Starting image fetching for {total_words} words...")
+            self.update_signal.emit(f"Starting concurrent image fetching for {total_words} words...")
             
-            for i, (danish_word, english_translation) in enumerate(self.word_translations.items()):
-                if self.abort_flag:
-                    self.update_signal.emit("Image fetching aborted by user")
-                    break
-                    
-                self.update_signal.emit(f"Fetching image for: {danish_word} ({i+1}/{total_words})")
-                self.progress_signal.emit(i + 1, total_words)
-                
-                # Periodic memory cleanup for large batches
-                if i > 0 and i % 20 == 0:
-                    import gc
-                    collected = gc.collect()
-                    self.update_signal.emit(f"Memory cleanup: freed {collected} objects (processed {i} words)")
-                
-                # Get English translation if not provided
-                if not english_translation:
-                    english_translation = self._get_english_translation(client, danish_word)
-                
-                if english_translation:
-                    # Search for image on langeek.co
-                    image_url = self._search_langeek_image(english_translation)
-                    if image_url:
-                        image_urls[danish_word] = image_url
-                        self.update_signal.emit(f"✓ Found image for {danish_word}: {image_url}")
-                    else:
-                        self.update_signal.emit(f"⚠ No suitable image found for {danish_word} (will use placeholder)")
-                        image_urls[danish_word] = None
-                else:
-                    self.update_signal.emit(f"⚠ Could not get English translation for {danish_word}")
-                    image_urls[danish_word] = None
-                
-                # Add a small delay to be respectful to the website
-                time.sleep(1)
+            # Use concurrent processing for better performance
+            if total_words <= 3:
+                # For small batches, use sequential processing
+                self._process_sequential(client, image_urls)
+            else:
+                # For larger batches, use concurrent processing
+                self._process_concurrent(client, image_urls)
                     
             if not self.abort_flag:
-                # Final memory cleanup before emitting results
-                import gc
-                collected = gc.collect()
-                self.update_signal.emit(f"Final memory cleanup: freed {collected} objects")
                 self.update_signal.emit(f"Sending image URLs for {len(image_urls)} words to main thread...")
                 self.finished_signal.emit(image_urls)
             
         except Exception as e:
             self.error_signal.emit(f"Failed to fetch images: {str(e)}")
+    
+    def _process_sequential(self, client, image_urls):
+        """Process images sequentially for small batches."""
+        total_words = len(self.word_translations)
+        
+        for i, (danish_word, english_translation) in enumerate(self.word_translations.items()):
+            if self.abort_flag:
+                break
+                
+            self.update_signal.emit(f"Fetching image for: {danish_word} ({i+1}/{total_words})")
+            self.progress_signal.emit(i + 1, total_words)
+            
+            self._process_single_word(client, danish_word, english_translation, image_urls)
+            time.sleep(AppConfig.REQUEST_DELAY)  # Reduced delay
+    
+    def _process_concurrent(self, client, image_urls):
+        """Process images concurrently for better performance."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
+        total_words = len(self.word_translations)
+        max_workers = AppConfig.MAX_CONCURRENT_IMAGES
+        completed_count = 0
+        
+        self.update_signal.emit(f"Using {max_workers} concurrent workers for image fetching...")
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all image fetching tasks
+            future_to_word = {
+                executor.submit(self._fetch_single_image, client, danish_word, english_translation): danish_word
+                for danish_word, english_translation in self.word_translations.items()
+            }
+            
+            # Process completed tasks
+            for future in as_completed(future_to_word):
+                if self.abort_flag:
+                    for f in future_to_word:
+                        f.cancel()
+                    break
+                
+                danish_word = future_to_word[future]
+                completed_count += 1
+                
+                try:
+                    image_url = future.result()
+                    image_urls[danish_word] = image_url
+                    
+                    if image_url:
+                        self.update_signal.emit(f"✓ [{completed_count}/{total_words}] Found image for {danish_word}")
+                    else:
+                        self.update_signal.emit(f"⚠ [{completed_count}/{total_words}] No image for {danish_word}")
+                        
+                except Exception as e:
+                    image_urls[danish_word] = None
+                    self.update_signal.emit(f"✗ [{completed_count}/{total_words}] Error with {danish_word}: {str(e)}")
+                
+                self.progress_signal.emit(completed_count, total_words)
+    
+    def _fetch_single_image(self, client, danish_word: str, english_translation: str) -> Optional[str]:
+        """Fetch image for a single word (thread-safe)."""
+        # Get English translation if not provided
+        if not english_translation:
+            english_translation = self._get_english_translation(client, danish_word)
+        
+        if english_translation:
+            return self._search_langeek_image(english_translation)
+        return None
+    
+    def _process_single_word(self, client, danish_word: str, english_translation: str, image_urls: dict):
+        """Process a single word for image fetching."""
+        try:
+            image_url = self._fetch_single_image(client, danish_word, english_translation)
+            image_urls[danish_word] = image_url
+            
+            if image_url:
+                self.update_signal.emit(f"✓ Found image for {danish_word}: {image_url}")
+            else:
+                self.update_signal.emit(f"⚠ No suitable image found for {danish_word}")
+        except Exception as e:
+            image_urls[danish_word] = None
+            self.update_signal.emit(f"✗ Error fetching image for {danish_word}: {str(e)}")
 
     def _get_english_translation(self, client, danish_word: str) -> Optional[str]:
         """Get English translation for a Danish word using ChatGPT."""

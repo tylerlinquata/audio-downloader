@@ -20,20 +20,27 @@ class AppConfig:
     DEFAULT_ANKI_FOLDER = "~/Library/Application Support/Anki2/User 1/collection.media"
     DEFAULT_CEFR_LEVEL = "B1"
     
-    # API settings
+    # API settings - Optimized for better performance and stability
     OPENAI_MODEL = "gpt-4o-mini"
-    OPENAI_MAX_TOKENS = 800
+    OPENAI_MAX_TOKENS = 1500  # Conservative limit for stable processing
     OPENAI_TEMPERATURE = 0.7
     
-    # Batch processing settings
-    BATCH_SIZE = 15  # Number of words to process per batch
-    BATCH_THRESHOLD = 20  # Use batch processing when word count is below this
+    # Batch processing settings - Very conservative for JSON stability
+    BATCH_SIZE = 5   # Very small batches to ensure JSON stability
+    BATCH_THRESHOLD = 15  # Use batching for lists smaller than this
     
-    # Download settings
+    # Download settings - Optimized for concurrent processing
     MAX_RETRIES = 3
-    REQUEST_DELAY = 1  # seconds between requests (legacy - now mainly for chunks)
-    CHUNK_SIZE = 1024  # for file downloads
+    REQUEST_DELAY = 0.2  # Reduced from 1 second for faster processing
+    CHUNK_SIZE = 8192  # Increased from 1024 for faster file downloads
     MIN_AUDIO_FILE_SIZE = 1024  # minimum size for valid audio file
+    
+    # New performance settings
+    MAX_CONCURRENT_DOWNLOADS = 5  # For parallel audio downloads
+    MAX_CONCURRENT_IMAGES = 3     # For parallel image fetching
+    CONNECTION_TIMEOUT = 30       # HTTP connection timeout
+    READ_TIMEOUT = 60            # HTTP read timeout
+    ENABLE_REQUEST_CACHING = True # Enable HTTP response caching
     
     # URLs
     BASE_URL = "https://ordnet.dk/ddo/ordbog"

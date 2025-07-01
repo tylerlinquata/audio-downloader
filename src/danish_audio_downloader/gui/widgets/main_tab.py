@@ -46,9 +46,13 @@ class MainTab(QWidget):
         self.word_input.insertFromMimeData = self._on_paste
         self._original_paste = original_paste
         
-        # Connect text change event for other cleaning (less aggressive now)
-        self.word_input.textChanged.connect(self._auto_clean_text)
+        # Connect text change event with debouncing for better performance
+        self.word_input.textChanged.connect(self._schedule_auto_clean)
         self._cleaning_in_progress = False  # Flag to prevent recursion
+        self._clean_timer = QTimer()
+        self._clean_timer.setSingleShot(True)
+        self._clean_timer.timeout.connect(self._auto_clean_text)
+        self._clean_timer.setInterval(500)  # 500ms debounce delay
         
         # Also clean on focus lost for better UX
         self.word_input.focusOutEvent = self._on_focus_out
@@ -190,8 +194,14 @@ class MainTab(QWidget):
             # If no text, use original paste behavior
             self._original_paste(source)
     
+    def _schedule_auto_clean(self):
+        """Schedule auto-cleaning with debouncing to improve performance."""
+        if not self._cleaning_in_progress:
+            self._clean_timer.stop()
+            self._clean_timer.start()
+    
     def _auto_clean_text(self):
-        """Automatically clean text - now mainly for converting to lowercase."""
+        """Automatically clean text - now with debouncing for better performance."""
         if self._cleaning_in_progress:
             return  # Prevent recursion
         

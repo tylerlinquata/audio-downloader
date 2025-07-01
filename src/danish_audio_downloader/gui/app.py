@@ -119,15 +119,12 @@ class DanishAudioApp(QMainWindow):
         self.main_tab.update_button_state("processing")
         self.main_tab.reset_progress()
         
-        # Log initial memory status and batch size warning
-        self._log_memory_usage("before processing starts")
-        
         self.main_tab.log_message("Starting unified processing...")
         self.main_tab.log_message(f"Processing {len(words)} words:")
         
         # Warn about large batches
         if len(words) > 50:
-            self.main_tab.log_message("⚠️  WARNING: Large batch detected! Processing more than 50 words may take significant time and memory.")
+            self.main_tab.log_message("⚠️  WARNING: Large batch detected! Processing more than 50 words may take significant time.")
         elif len(words) > 25:
             self.main_tab.log_message("⚠️  Note: Processing more than 25 words may take several minutes.")
         
