@@ -390,10 +390,10 @@ class CardProcessor:
         return result_sentence
     
     def _get_image_url(self, word):
-        """Get the image URL for a word, or return placeholder if not available."""
+        """Get the image URL for a word, or return empty string if not available."""
         if word in self.word_image_urls and self.word_image_urls[word]:
             return f'<image src="{self.word_image_urls[word]}">'
-        return '<image src="myimage.jpg">'  # Fallback placeholder
+        return ''  # Leave blank when no image is available
     
     def _strip_english_from_definition(self, definition):
         """Remove any English translation after a dash or parenthesis."""
