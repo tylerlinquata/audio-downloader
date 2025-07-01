@@ -63,17 +63,30 @@ class CardProcessor:
             "total_words": len(words_to_copy)
         }
     
-    def export_structured_data_to_csv(self, word_data_list, file_path):
+    def export_structured_data_to_csv(self, word_data_list, file_path, log_callback=None):
         """Export structured word data to CSV format for Anki import with specific card types."""
-        csv_data = []
+        if log_callback:
+            log_callback(f"Starting CSV export to: {file_path}")
+            log_callback(f"Processing {len(word_data_list)} word entries...")
         
-        for word_data in word_data_list:
+        csv_data = []
+        processed_words = 0
+        skipped_words = 0
+        
+        for i, word_data in enumerate(word_data_list):
+            word = word_data.get('word', 'Unknown')
+            
             # Skip error entries
             if word_data.get('error'):
+                skipped_words += 1
+                if log_callback:
+                    log_callback(f"  Skipping '{word}' - has error: {word_data.get('error')}")
                 continue
                 
-            word = word_data.get('word', '')
-            if not word:
+            if not word or word == 'Unknown':
+                skipped_words += 1
+                if log_callback:
+                    log_callback(f"  Skipping entry {i+1} - no word specified")
                 continue
             
             # Extract sentences from structured data
@@ -86,15 +99,41 @@ class CardProcessor:
             if len(sentences) >= 2:  # Changed from 3 to 2 to match card generation
                 # Generate the card types for this word with available sentences
                 if len(sentences) >= 3:
-                    csv_data.extend(self._generate_anki_cards_from_structured_data(word, sentences[:3], word_data))
+                    cards = self._generate_anki_cards_from_structured_data(word, sentences[:3], word_data)
                 else:
-                    csv_data.extend(self._generate_anki_cards_from_structured_data(word, sentences, word_data))
+                    cards = self._generate_anki_cards_from_structured_data(word, sentences, word_data)
+                
+                csv_data.extend(cards)
+                processed_words += 1
+                if log_callback:
+                    log_callback(f"  Generated {len(cards)} cards for '{word}' (using {len(sentences)} sentences)")
+            else:
+                skipped_words += 1
+                if log_callback:
+                    log_callback(f"  Skipping '{word}' - insufficient sentences ({len(sentences)} found, need at least 2)")
         
-        # Write to CSV file
-        with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
-            writer = csv.writer(csvfile)
-            # Don't write header for Anki import - Anki doesn't expect headers
-            writer.writerows(csv_data)
+        if log_callback:
+            log_callback(f"CSV generation summary:")
+            log_callback(f"  - Processed words: {processed_words}")
+            log_callback(f"  - Skipped words: {skipped_words}")
+            log_callback(f"  - Total cards generated: {len(csv_data)}")
+            log_callback(f"Writing CSV data to file...")
+        
+        try:
+            # Write to CSV file
+            with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                # Don't write header for Anki import - Anki doesn't expect headers
+                writer.writerows(csv_data)
+            
+            if log_callback:
+                log_callback(f"Successfully wrote {len(csv_data)} rows to CSV file")
+        
+        except Exception as e:
+            error_msg = f"Failed to write CSV file: {str(e)}"
+            if log_callback:
+                log_callback(f"ERROR: {error_msg}")
+            raise Exception(error_msg)
         
         return csv_data
 

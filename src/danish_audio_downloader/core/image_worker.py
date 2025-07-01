@@ -42,12 +42,21 @@ class ImageWorker(QThread):
             image_urls = {}
             total_words = len(self.word_translations)
             
+            self.update_signal.emit(f"Starting image fetching for {total_words} words...")
+            
             for i, (danish_word, english_translation) in enumerate(self.word_translations.items()):
                 if self.abort_flag:
+                    self.update_signal.emit("Image fetching aborted by user")
                     break
                     
-                self.update_signal.emit(f"Fetching image for: {danish_word}")
+                self.update_signal.emit(f"Fetching image for: {danish_word} ({i+1}/{total_words})")
                 self.progress_signal.emit(i + 1, total_words)
+                
+                # Periodic memory cleanup for large batches
+                if i > 0 and i % 20 == 0:
+                    import gc
+                    collected = gc.collect()
+                    self.update_signal.emit(f"Memory cleanup: freed {collected} objects (processed {i} words)")
                 
                 # Get English translation if not provided
                 if not english_translation:
@@ -70,6 +79,11 @@ class ImageWorker(QThread):
                 time.sleep(1)
                     
             if not self.abort_flag:
+                # Final memory cleanup before emitting results
+                import gc
+                collected = gc.collect()
+                self.update_signal.emit(f"Final memory cleanup: freed {collected} objects")
+                self.update_signal.emit(f"Sending image URLs for {len(image_urls)} words to main thread...")
                 self.finished_signal.emit(image_urls)
             
         except Exception as e:

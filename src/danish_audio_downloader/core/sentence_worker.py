@@ -36,12 +36,21 @@ class SentenceWorker(QThread):
             word_translations = {}  # Track English translations for image fetching
             total_words = len(self.words)
             
+            self.update_signal.emit(f"Starting sentence generation for {total_words} words...")
+            
             for i, word in enumerate(self.words):
                 if self.abort_flag:
+                    self.update_signal.emit("Sentence generation aborted by user")
                     break
                     
-                self.update_signal.emit(f"Generating sentences for: {word}")
+                self.update_signal.emit(f"Generating sentences for: {word} ({i+1}/{total_words})")
                 self.progress_signal.emit(i + 1, total_words)
+                
+                # Periodic memory cleanup for large batches
+                if i > 0 and i % 20 == 0:
+                    import gc
+                    collected = gc.collect()
+                    self.update_signal.emit(f"Memory cleanup: freed {collected} objects (processed {i} words)")
                 
                 # Create the prompt for structured JSON response
                 prompt = f"""For the Danish word "{word}", please provide detailed language information and example sentences.
@@ -139,6 +148,11 @@ Requirements:
                     word_data_list.append(error_data)
             
             if not self.abort_flag:
+                # Final memory cleanup before emitting results
+                import gc
+                collected = gc.collect()
+                self.update_signal.emit(f"Final memory cleanup: freed {collected} objects")
+                self.update_signal.emit(f"Sending results for {len(word_data_list)} words to main thread...")
                 self.finished_signal.emit(word_data_list, word_translations)
             
         except Exception as e:

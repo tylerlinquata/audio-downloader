@@ -1,6 +1,7 @@
 """Main application window for Danish Audio Downloader."""
 
 import os
+import gc  # For garbage collection monitoring
 from PyQt5.QtWidgets import QMainWindow, QTabWidget, QMessageBox
 from PyQt5.QtCore import pyqtSignal
 
@@ -118,8 +119,18 @@ class DanishAudioApp(QMainWindow):
         self.main_tab.update_button_state("processing")
         self.main_tab.reset_progress()
         
+        # Log initial memory status and batch size warning
+        self._log_memory_usage("before processing starts")
+        
         self.main_tab.log_message("Starting unified processing...")
         self.main_tab.log_message(f"Processing {len(words)} words:")
+        
+        # Warn about large batches
+        if len(words) > 50:
+            self.main_tab.log_message("⚠️  WARNING: Large batch detected! Processing more than 50 words may take significant time and memory.")
+        elif len(words) > 25:
+            self.main_tab.log_message("⚠️  Note: Processing more than 25 words may take several minutes.")
+        
         for word in words:
             self.main_tab.log_message(f"  - {word}")
         
@@ -172,20 +183,32 @@ class DanishAudioApp(QMainWindow):
     
     def _sentence_generation_finished(self, word_data_list, word_translations):
         """Handle completion of sentence generation and start image fetching."""
-        # Store the structured data
-        self.structured_word_data = word_data_list
-        
-        # Format for display in the results area
-        formatted_results = self._format_word_data_for_display(word_data_list)
-        self.main_tab.set_results(formatted_results)
-        self.main_tab.log_message("\n=== Sentence Generation Complete ===")
-        self.main_tab.log_message(f"Generated sentences for {len(word_translations)} words")
-        
-        # Store the formatted sentence results for backward compatibility
-        self.final_sentence_results = formatted_results
-        
-        # Start image fetching phase
-        self._start_image_fetching_phase(word_translations)
+        try:
+            self.main_tab.log_message(f"Received data for {len(word_data_list)} words from sentence worker")
+            self._log_memory_usage("after receiving sentence data")
+            
+            # Store the structured data
+            self.structured_word_data = word_data_list
+            
+            # Format for display in the results area
+            formatted_results = self._format_word_data_for_display(word_data_list)
+            self.main_tab.set_results(formatted_results)
+            self.main_tab.log_message("\n=== Sentence Generation Complete ===")
+            self.main_tab.log_message(f"Generated sentences for {len(word_translations)} words")
+            
+            # Store the formatted sentence results for backward compatibility
+            self.final_sentence_results = formatted_results
+            
+            self._log_memory_usage("after formatting sentence data")
+            
+            # Start image fetching phase
+            self._start_image_fetching_phase(word_translations)
+            
+        except Exception as e:
+            error_msg = f"Error processing sentence generation results: {str(e)}"
+            self.main_tab.log_message(f"ERROR: {error_msg}")
+            QMessageBox.critical(self, "Processing Error", error_msg)
+            self.main_tab.update_button_state("idle")
     
     def _start_image_fetching_phase(self, word_translations):
         """Start the image fetching phase."""
@@ -258,6 +281,8 @@ class DanishAudioApp(QMainWindow):
                 return
             if cards_data:
                 self.main_tab.log_message(f"Generated {len(cards_data)} cards for review.")
+                
+                self._log_memory_usage("after card generation")
                 
                 # Show completion message and redirect to review
                 word_count = len(self.pending_sentence_generation['words'])
@@ -348,10 +373,23 @@ class DanishAudioApp(QMainWindow):
         
         if file_path:
             try:
-                settings = self.settings_tab.get_settings()
-                # Use the new method that works with structured data
-                csv_data = self.card_processor.export_structured_data_to_csv(self.structured_word_data, file_path)
+                self._log_memory_usage("before CSV export")
                 
+                self.main_tab.log_message(f"\n=== Exporting to CSV ===")
+                self.main_tab.log_message(f"Preparing to save results to: {file_path}")
+                self.main_tab.log_message(f"Structured data contains {len(self.structured_word_data)} entries")
+                
+                settings = self.settings_tab.get_settings()
+                # Use the new method that works with structured data, pass log callback
+                csv_data = self.card_processor.export_structured_data_to_csv(
+                    self.structured_word_data, 
+                    file_path,
+                    log_callback=self.main_tab.log_message
+                )
+                
+                self._log_memory_usage("after CSV generation")
+                
+                self.main_tab.log_message(f"\n=== Copying Audio Files ===")
                 # Copy audio files to Anki
                 copy_result = self.card_processor.copy_audio_files_to_anki(
                     csv_data, 
@@ -446,6 +484,35 @@ class DanishAudioApp(QMainWindow):
         """Load settings from persistent storage."""
         settings = self.settings_manager.load_settings()
         self.settings_tab.load_settings(settings)
+    
+    def _log_memory_usage(self, context=""):
+        """Log current memory usage and object counts for debugging."""
+        try:
+            # Force garbage collection
+            collected = gc.collect()
+            
+            # Get object counts by type
+            import sys
+            object_counts = {}
+            for obj in gc.get_objects():
+                obj_type = type(obj).__name__
+                object_counts[obj_type] = object_counts.get(obj_type, 0) + 1
+            
+            # Log top object types
+            top_objects = sorted(object_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+            
+            log_msg = f"Memory usage {context}:"
+            if collected > 0:
+                log_msg += f" (freed {collected} objects)"
+            
+            self.main_tab.log_message(log_msg)
+            self.main_tab.log_message(f"  Total objects in memory: {len(gc.get_objects())}")
+            self.main_tab.log_message("  Top object types:")
+            for obj_type, count in top_objects:
+                self.main_tab.log_message(f"    {obj_type}: {count}")
+                
+        except Exception as e:
+            self.main_tab.log_message(f"Failed to get memory info: {str(e)}")
 
 def main():
     """Main entry point for the GUI application."""

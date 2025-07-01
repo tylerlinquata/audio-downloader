@@ -177,11 +177,20 @@ class ReviewTab(QWidget):
     
     def populate_cards(self, cards_data):
         """Populate the review table with generated cards."""
+        print(f"DEBUG: Starting to populate {len(cards_data)} cards...")
+        
         self.generated_cards = cards_data
         self.card_table.setRowCount(len(cards_data))
         self.word_to_rows = {}  # Reset the word-to-rows mapping
         
+        # Limit concurrent image loading to prevent overwhelming the system
+        max_concurrent_images = 10
+        images_loading = 0
+        
         for row, card_info in enumerate(cards_data):
+            if row % 50 == 0:  # Log progress every 50 cards
+                print(f"DEBUG: Processing card {row+1}/{len(cards_data)}")
+            
             # Extract card data and metadata
             if isinstance(card_info, dict):
                 card = card_info['card_data']
@@ -206,8 +215,8 @@ class ReviewTab(QWidget):
             checkbox.stateChanged.connect(self._update_card_status)
             self.card_table.setCellWidget(row, 0, checkbox)
             
-            # Column 1: Preview Image
-            if image_url and isinstance(image_url, str) and image_url.strip():
+            # Column 1: Preview Image - Limit concurrent loading
+            if image_url and isinstance(image_url, str) and image_url.strip() and images_loading < max_concurrent_images:
                 image_label = QLabel()
                 image_label.setAlignment(Qt.AlignCenter)
                 image_label.setText("🖼️ Loading...")
@@ -220,8 +229,16 @@ class ReviewTab(QWidget):
                 loader.image_loaded.connect(self._on_image_loaded)
                 loader.start()
                 self.image_loaders.append(loader)
+                images_loading += 1
             else:
-                no_image_label = QLabel("❌ No Image")
+                # Show placeholder instead of trying to load image
+                if image_url and isinstance(image_url, str) and image_url.strip():
+                    no_image_label = QLabel("🖼️ Queued")
+                    no_image_label.setToolTip(f"Image available but not loaded to conserve resources: {image_url}")
+                else:
+                    no_image_label = QLabel("❌ No Image")
+                    no_image_label.setToolTip("No image URL available")
+                
                 no_image_label.setAlignment(Qt.AlignCenter)
                 no_image_label.setStyleSheet("QLabel { padding: 5px; }")
                 no_image_label.setMinimumSize(90, 70)
@@ -241,6 +258,8 @@ class ReviewTab(QWidget):
                 if col in [3, 5, 7, 8]:  # Example, Definition, Full Sentence, Grammar columns
                     item.setToolTip(str(value))
                 self.card_table.setItem(row, col, item)
+        
+        print(f"DEBUG: Finished populating {len(cards_data)} cards. Started {images_loading} image loaders.")
         
         # Update status
         self._update_card_status()
