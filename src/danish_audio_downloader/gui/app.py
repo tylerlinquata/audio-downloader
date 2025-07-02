@@ -125,8 +125,10 @@ class DanishAudioApp(QMainWindow):
         # Warn about large batches
         if len(words) > 50:
             self.main_tab.log_message("⚠️  WARNING: Large batch detected! Processing more than 50 words may take significant time.")
+            self.main_tab.log_message("    Images will be loaded gradually to prevent system overload.")
         elif len(words) > 25:
             self.main_tab.log_message("⚠️  Note: Processing more than 25 words may take several minutes.")
+            self.main_tab.log_message("    Images will be loaded in batches for optimal performance.")
         
         for word in words:
             self.main_tab.log_message(f"  - {word}")
@@ -298,14 +300,26 @@ class DanishAudioApp(QMainWindow):
                 )
                 
                 # Populate the review table and switch to review tab
-                self.review_tab.populate_cards(cards_data)
+                self._log_memory_usage("before populating review tab")
                 
-                # Enable the review tab and switch to it
-                self.tabs.setTabEnabled(2, True)
-                self.tabs.setCurrentIndex(2)
-                
-                # Update button state to idle since we're now in review mode
-                self.main_tab.update_button_state("idle")
+                try:
+                    self.review_tab.populate_cards(cards_data)
+                    
+                    # Enable the review tab and switch to it
+                    self.tabs.setTabEnabled(2, True)
+                    self.tabs.setCurrentIndex(2)
+                    
+                    # Update button state to idle since we're now in review mode
+                    self.main_tab.update_button_state("idle")
+                    
+                    self._log_memory_usage("after populating review tab")
+                    
+                except Exception as e:
+                    error_msg = f"Error populating review tab: {str(e)}"
+                    self.main_tab.log_message(f"ERROR: {error_msg}")
+                    QMessageBox.critical(self, "Review Tab Error", error_msg)
+                    self.main_tab.update_button_state("results_ready")
+                    return
                 
             else:
                 self.main_tab.log_message("No cards were generated. Check the sentence results format.")
@@ -455,13 +469,20 @@ class DanishAudioApp(QMainWindow):
     
     def _reset_for_new_processing(self):
         """Reset the app for new processing."""
-        # Clean up review tab
-        self.review_tab.cleanup()
+        # Clean up review tab resources
+        if hasattr(self.review_tab, 'cleanup'):
+            self.review_tab.cleanup()
         
         # Clear data
         self.card_processor.set_image_urls({})
         self.final_sentence_results = ""
         self.pending_sentence_generation = {}
+        self.structured_word_data = []
+        
+        # Force garbage collection to clean up resources
+        import gc
+        collected = gc.collect()
+        self.main_tab.log_message(f"Cleaned up resources (freed {collected} objects)")
         
         # Disable review tab and go back to processing
         self.tabs.setTabEnabled(2, False)
@@ -510,6 +531,26 @@ class DanishAudioApp(QMainWindow):
                 
         except Exception as e:
             self.main_tab.log_message(f"Failed to get memory info: {str(e)}")
+
+    def closeEvent(self, event):
+        """Handle application close event to properly clean up resources."""
+        try:
+            # Cancel any running workers
+            self._cancel_processing()
+            
+            # Clean up review tab resources
+            if hasattr(self, 'review_tab') and hasattr(self.review_tab, 'cleanup'):
+                self.review_tab.cleanup()
+            
+            # Force garbage collection
+            import gc
+            collected = gc.collect()
+            print(f"Application closing: freed {collected} objects")
+            
+        except Exception as e:
+            print(f"Error during application cleanup: {e}")
+        
+        super().closeEvent(event)
 
 def main():
     """Main entry point for the GUI application."""

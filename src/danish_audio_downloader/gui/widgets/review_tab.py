@@ -59,6 +59,9 @@ class ImageLoader(QThread):
             print(f"Error loading image from URL '{self.url}': {e}")
             print(f"URL type: {type(self.url)}")
             print(f"URL value: {repr(self.url)}")
+        finally:
+            # Always emit finished signal
+            self.finished.emit()
 
 
 class ReviewTab(QWidget):
@@ -73,6 +76,9 @@ class ReviewTab(QWidget):
         self.generated_cards = []
         self.image_loaders = []
         self.word_to_rows = {}  # Map Danish words to list of row indices
+        self.pending_image_loads = []  # Queue for pending image loads
+        self.max_concurrent_loaders = 5  # Limit concurrent image loaders
+        self.active_loaders = 0
         self.setup_ui()
     
     def setup_ui(self):
@@ -182,10 +188,11 @@ class ReviewTab(QWidget):
         self.generated_cards = cards_data
         self.card_table.setRowCount(len(cards_data))
         self.word_to_rows = {}  # Reset the word-to-rows mapping
+        self.pending_image_loads = []  # Reset pending loads
+        self.active_loaders = 0
         
-        # Limit concurrent image loading to prevent overwhelming the system
-        max_concurrent_images = 10
-        images_loading = 0
+        # Clear any existing image loaders to prevent resource leaks
+        self._cleanup_image_loaders()
         
         for row, card_info in enumerate(cards_data):
             if row % 50 == 0:  # Log progress every 50 cards
@@ -215,30 +222,23 @@ class ReviewTab(QWidget):
             checkbox.stateChanged.connect(self._update_card_status)
             self.card_table.setCellWidget(row, 0, checkbox)
             
-            # Column 1: Preview Image - Limit concurrent loading
-            if image_url and isinstance(image_url, str) and image_url.strip() and images_loading < max_concurrent_images:
+            # Column 1: Preview Image - Use queued loading system
+            if image_url and isinstance(image_url, str) and image_url.strip():
                 image_label = QLabel()
                 image_label.setAlignment(Qt.AlignCenter)
-                image_label.setText("🖼️ Loading...")
+                image_label.setText("🖼️ Queued")
                 image_label.setToolTip(f"Image URL: {image_url}")
                 image_label.setStyleSheet("QLabel { padding: 5px; }")
                 image_label.setMinimumSize(90, 70)
                 image_label.setMaximumSize(90, 70)
                 self.card_table.setCellWidget(row, 1, image_label)
-                loader = ImageLoader(row, 1, image_url)
-                loader.image_loaded.connect(self._on_image_loaded)
-                loader.start()
-                self.image_loaders.append(loader)
-                images_loading += 1
-            else:
-                # Show placeholder instead of trying to load image
-                if image_url and isinstance(image_url, str) and image_url.strip():
-                    no_image_label = QLabel("🖼️ Queued")
-                    no_image_label.setToolTip(f"Image available but not loaded to conserve resources: {image_url}")
-                else:
-                    no_image_label = QLabel("❌ No Image")
-                    no_image_label.setToolTip("No image URL available")
                 
+                # Add to pending loads queue
+                self.pending_image_loads.append((row, 1, image_url))
+            else:
+                # Show placeholder for no image
+                no_image_label = QLabel("❌ No Image")
+                no_image_label.setToolTip("No image URL available")
                 no_image_label.setAlignment(Qt.AlignCenter)
                 no_image_label.setStyleSheet("QLabel { padding: 5px; }")
                 no_image_label.setMinimumSize(90, 70)
@@ -259,18 +259,83 @@ class ReviewTab(QWidget):
                     item.setToolTip(str(value))
                 self.card_table.setItem(row, col, item)
         
-        print(f"DEBUG: Finished populating {len(cards_data)} cards. Started {images_loading} image loaders.")
+        print(f"DEBUG: Finished populating {len(cards_data)} cards. {len(self.pending_image_loads)} images queued for loading.")
+        
+        # Start loading images from the queue
+        self._process_image_queue()
         
         # Update status
         self._update_card_status()
     
+    def _cleanup_image_loaders(self):
+        """Clean up any existing image loaders to prevent resource leaks."""
+        try:
+            for loader in self.image_loaders:
+                if loader.isRunning():
+                    loader.wait(100)  # Wait up to 100ms for thread to finish
+                if loader.isRunning():
+                    loader.terminate()  # Force terminate if still running
+            self.image_loaders.clear()
+            self.active_loaders = 0
+            print("DEBUG: Cleaned up image loaders")
+        except Exception as e:
+            print(f"Error cleaning up image loaders: {e}")
+    
+    def _process_image_queue(self):
+        """Process the next batch of images from the queue."""
+        while (self.active_loaders < self.max_concurrent_loaders and 
+               self.pending_image_loads):
+            
+            row, col, url = self.pending_image_loads.pop(0)
+            self._start_image_load(row, col, url)
+    
+    def _start_image_load(self, row, col, url):
+        """Start loading a single image."""
+        try:
+            # Update label to show loading status
+            widget = self.card_table.cellWidget(row, col)
+            if widget and isinstance(widget, QLabel):
+                widget.setText("🖼️ Loading...")
+            
+            loader = ImageLoader(row, col, url)
+            loader.image_loaded.connect(self._on_image_loaded)
+            loader.finished.connect(lambda: self._on_loader_finished(loader))
+            loader.start()
+            
+            self.image_loaders.append(loader)
+            self.active_loaders += 1
+            
+        except Exception as e:
+            print(f"Error starting image load for row {row}: {e}")
+            # Mark as failed to load
+            widget = self.card_table.cellWidget(row, col)
+            if widget and isinstance(widget, QLabel):
+                widget.setText("❌ Failed")
+                widget.setToolTip(f"Failed to load image: {e}")
+    
+    def _on_loader_finished(self, loader):
+        """Handle when an image loader finishes (success or failure)."""
+        try:
+            if loader in self.image_loaders:
+                self.image_loaders.remove(loader)
+            self.active_loaders = max(0, self.active_loaders - 1)
+            
+            # Process next item in queue
+            self._process_image_queue()
+            
+        except Exception as e:
+            print(f"Error handling loader finish: {e}")
+
     def _on_image_loaded(self, row, col, pixmap):
         """Callback when an image is successfully loaded."""
-        widget = self.card_table.cellWidget(row, col)
-        if widget and isinstance(widget, QLabel):
-            widget.setPixmap(pixmap)
-            widget.setText("")  # Clear the loading text
-    
+        try:
+            widget = self.card_table.cellWidget(row, col)
+            if widget and isinstance(widget, QLabel):
+                widget.setPixmap(pixmap)
+                widget.setText("")  # Clear the loading text
+        except Exception as e:
+            print(f"Error setting loaded image: {e}")
+
     def _on_table_item_changed(self, item):
         """Handle changes to table items and refresh image preview if image URL changed."""
         if not item:
@@ -471,14 +536,22 @@ class ReviewTab(QWidget):
     
     def cleanup(self):
         """Stop any running image loaders and clean up resources."""
-        for loader in self.image_loaders:
-            if loader.isRunning():
-                loader.terminate()
-                loader.wait()
-        self.image_loaders.clear()
+        self._cleanup_image_loaders()
         
         # Clear data
         self.generated_cards = []
         self.word_to_rows = {}
+        self.pending_image_loads = []
         self.card_table.setRowCount(0)
         self.card_status_label.setText("No cards loaded")
+    
+    def closeEvent(self, event):
+        """Handle widget close event to clean up resources."""
+        self._cleanup_image_loaders()
+        super().closeEvent(event)
+    
+    def hideEvent(self, event):
+        """Handle widget hide event to clean up resources when switching tabs."""
+        # Don't cleanup when just hiding, as user might come back
+        # Only cleanup on explicit close or app exit
+        super().hideEvent(event)
