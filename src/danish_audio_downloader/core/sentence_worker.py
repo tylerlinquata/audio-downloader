@@ -122,6 +122,7 @@ Requirements:
 - 3 example sentences per word
 - Focus on creating natural example sentences
 - English translation MUST be the singular/base form (e.g., "cat" not "cats", "run" not "running", "go" not "goes")
+- For verbs, use the infinitive/base form (e.g., "run", "eat", "be" not "runs", "eating", "was")
 - DO NOT escape quotes in Danish text
 - Return ONLY the JSON object"""
         
