@@ -75,12 +75,13 @@ class CardProcessor:
         
         for i, word_data in enumerate(word_data_list):
             word = word_data.get('word', 'Unknown')
+            original_word = word_data.get('original_word', word)  # Get original user input word
             
             # Skip error entries
             if word_data.get('error'):
                 skipped_words += 1
                 if log_callback:
-                    log_callback(f"  Skipping '{word}' - has error: {word_data.get('error')}")
+                    log_callback(f"  Skipping '{original_word}' - has error: {word_data.get('error')}")
                 continue
                 
             if not word or word == 'Unknown':
@@ -106,11 +107,11 @@ class CardProcessor:
                 csv_data.extend(cards)
                 processed_words += 1
                 if log_callback:
-                    log_callback(f"  Generated {len(cards)} cards for '{word}' (using {len(sentences)} sentences)")
+                    log_callback(f"  Generated {len(cards)} cards for '{original_word}' (using {len(sentences)} sentences)")
             else:
                 skipped_words += 1
                 if log_callback:
-                    log_callback(f"  Skipping '{word}' - insufficient sentences ({len(sentences)} found, need at least 2)")
+                    log_callback(f"  Skipping '{original_word}' - insufficient sentences ({len(sentences)} found, need at least 2)")
         
         if log_callback:
             log_callback(f"CSV generation summary:")
@@ -144,6 +145,9 @@ class CardProcessor:
         if len(sentences) < 2:  # Need at least 2 sentences
             return cards
         
+        # Get the original user input word for word removal and back column
+        original_word = word_data.get('original_word', word)
+        
         # Extract grammar information from structured data
         grammar_info = {
             'ipa': word_data.get('pronunciation', ''),
@@ -156,53 +160,53 @@ class CardProcessor:
         }
         
         # Card Type 1: Fill-in-the-blank + IPA
-        sentence1_with_blank = self._remove_word_from_sentence(sentences[0], word, use_blank=True)
+        sentence1_with_blank = self._remove_word_from_sentence(sentences[0], original_word, use_blank=True)
         grammar_details = self._format_grammar_details_from_structured_data(word_data)
         definition_clean = self._strip_english_from_definition(grammar_info.get('definition', ''))
         cards.append([
-            sentence1_with_blank,                    # Front (Eksempel med ord fjernet eller blankt)
-            self._get_image_url(word),               # Front (Billede)
-            definition_clean,                        # Front (Definition, grundform, osv.)
-            word,                                    # Back (et enkelt ord/udtryk, uden kontekst)
-            sentences[0],                            # - Hele sætningen (intakt)
-            f'{grammar_details} [sound:{word}.mp3]', # - Ekstra info (IPA, køn, bøjning)
-            'y'                                      # • Lav 2 kort?
+            sentence1_with_blank,                         # Front (Eksempel med ord fjernet eller blankt)
+            self._get_image_url(word),                    # Front (Billede)
+            definition_clean,                             # Front (Definition, grundform, osv.)
+            original_word,                                # Back (et enkelt ord/udtryk, uden kontekst) - Use original word
+            sentences[0],                                 # - Hele sætningen (intakt)
+            f'{grammar_details} [sound:{original_word}.mp3]', # - Ekstra info (IPA, køn, bøjning) - Use original word for audio
+            'y'                                           # • Lav 2 kort?
         ])
         
         # Card Type 2: Fill-in-the-blank + definition (definition present, no English)
-        sentence1_no_word = self._remove_word_from_sentence(sentences[0], word, use_blank=False)
+        sentence1_no_word = self._remove_word_from_sentence(sentences[0], original_word, use_blank=False)
         cards.append([
-            sentence1_no_word,                       # Front (Eksempel med ord fjernet eller blankt)
-            self._get_image_url(word),               # Front (Billede)
-            f'{word} - {definition_clean}',          # Front (Definition, grundform, osv.)
-            '',                                      # Back (et enkelt ord/udtryk, uden kontekst) - empty for card 2
-            sentences[0],                            # - Hele sætningen (intakt)
-            f'{grammar_details} [sound:{word}.mp3]', # - Ekstra info (IPA, køn, bøjning)
-            ''                                       # • Lav 2 kort? - empty for card 2
+            sentence1_no_word,                            # Front (Eksempel med ord fjernet eller blankt)
+            self._get_image_url(word),                    # Front (Billede)
+            f'{original_word} - {definition_clean}',      # Front (Definition, grundform, osv.) - Use original word
+            '',                                           # Back (et enkelt ord/udtryk, uden kontekst) - empty for card 2
+            sentences[0],                                 # - Hele sætningen (intakt)
+            f'{grammar_details} [sound:{original_word}.mp3]', # - Ekstra info (IPA, køn, bøjning) - Use original word for audio
+            ''                                            # • Lav 2 kort? - empty for card 2
         ])
         
         # Card Type 3: New sentence with blank (only if we have 3 or more sentences)
         if len(sentences) >= 3:
-            sentence2_with_blank = self._remove_word_from_sentence(sentences[1], word, use_blank=True)
+            sentence2_with_blank = self._remove_word_from_sentence(sentences[1], original_word, use_blank=True)
             cards.append([
                 sentence2_with_blank,                    # Front (Eksempel med ord fjernet eller blankt)
                 self._get_image_url(word),               # Front (Billede)
                 definition_clean,                        # Front (Definition, grundform, osv.)
-                word,                                    # Back (et enkelt ord/udtryk, uden kontekst)
+                original_word,                           # Back (et enkelt ord/udtryk, uden kontekst) - Use original word
                 sentences[1],                            # - Hele sætningen (intakt)
-                f'{grammar_details} [sound:{word}.mp3]', # - Ekstra info (IPA, køn, bøjning)
+                f'{grammar_details} [sound:{original_word}.mp3]', # - Ekstra info (IPA, køn, bøjning) - Use original word for audio
                 ''                                       # • Lav 2 kort? - empty for card 3
             ])
         elif len(sentences) >= 2:
             # Use second sentence for card 3 if available
-            sentence2_with_blank = self._remove_word_from_sentence(sentences[1], word, use_blank=True)
+            sentence2_with_blank = self._remove_word_from_sentence(sentences[1], original_word, use_blank=True)
             cards.append([
                 sentence2_with_blank,                    # Front (Eksempel med ord fjernet eller blankt)
                 self._get_image_url(word),               # Front (Billede)
                 definition_clean,                        # Front (Definition, grundform, osv.)
-                word,                                    # Back (et enkelt ord/udtryk, uden kontekst)
+                original_word,                           # Back (et enkelt ord/udtryk, uden kontekst) - Use original word
                 sentences[1],                            # - Hele sætningen (intakt)
-                f'{grammar_details} [sound:{word}.mp3]', # - Ekstra info (IPA, køn, bøjning)
+                f'{grammar_details} [sound:{original_word}.mp3]', # - Ekstra info (IPA, køn, bøjning) - Use original word for audio
                 ''                                       # • Lav 2 kort? - empty for card 3
             ])
         
@@ -218,6 +222,7 @@ class CardProcessor:
                 continue
                 
             word = word_data.get('word', '')
+            original_word = word_data.get('original_word', word)  # Get original user input word
             if not word:
                 continue
             
@@ -239,13 +244,13 @@ class CardProcessor:
                 
                 # Add metadata for each card
                 english_translation = word_data.get('english_translation', 'Unknown')
-                image_url = self.word_image_urls.get(word, None)
+                image_url = self.word_image_urls.get(original_word, None)  # Use original word for image lookup
                 
                 for card in word_cards:
                     # Add preview information (Danish word, English translation, image status)
                     card_with_metadata = {
                         'card_data': card,
-                        'danish_word': word,
+                        'danish_word': original_word,  # Use original word for display
                         'english_word': english_translation,
                         'image_url': image_url
                     }

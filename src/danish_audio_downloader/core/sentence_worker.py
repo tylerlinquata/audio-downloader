@@ -154,14 +154,22 @@ Requirements:
             
             if batch_data and 'words' in batch_data:
                 processed_count = 0
-                for word_data in batch_data['words']:
+                for i, word_data in enumerate(batch_data['words']):
                     if word_data.get('word'):
+                        # Preserve the original user input word if we have it
+                        if i < len(words_batch):
+                            word_data['original_word'] = words_batch[i]
+                        else:
+                            # Fallback to the word from the response
+                            word_data['original_word'] = word_data.get('word', '')
+                        
                         word_data_list.append(word_data)
                         processed_count += 1
                         
-                        # Store English translation for image fetching
+                        # Store English translation for image fetching using original word
+                        original_word = word_data['original_word']
                         if word_data.get('english_translation'):
-                            word_translations[word_data['word']] = word_data['english_translation'].lower().strip()
+                            word_translations[original_word] = word_data['english_translation'].lower().strip()
                     
                 self.update_signal.emit(f"Successfully processed {processed_count} words in batch (requested {len(words_batch)})")
                 
@@ -385,6 +393,9 @@ Requirements:
                 word_data = self._parse_response(json_content)
                 
                 if word_data:
+                    # Preserve the original user input word
+                    word_data['original_word'] = word
+                    
                     # Store the structured data directly
                     word_data_list.append(word_data)
                     
@@ -395,6 +406,7 @@ Requirements:
                     # Fallback with error data structure
                     error_data = {
                         'word': word,
+                        'original_word': word,  # Preserve original word even in error cases
                         'error': 'Could not parse response for this word',
                         'pronunciation': '',
                         'word_type': '',
@@ -416,6 +428,7 @@ Requirements:
                 # Add error data structure
                 error_data = {
                     'word': word,
+                    'original_word': word,  # Preserve original word even in error cases
                     'error': f'Could not generate sentences for this word: {str(e)}',
                     'pronunciation': '',
                     'word_type': '',
