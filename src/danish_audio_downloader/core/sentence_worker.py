@@ -97,7 +97,7 @@ Use this EXACT format:
     "words": [
         {{
             "word": "word1",
-            "english_translation": "singular form of English word",
+            "english_translation": "dictionary form (infinitive for verbs, singular for nouns)",
             "example_sentences": [
                 {{
                     "danish": "Danish sentence with normal quotes",
@@ -121,8 +121,9 @@ Requirements:
 - CEFR level: {self.cefr_level}
 - 3 example sentences per word
 - Focus on creating natural example sentences
-- English translation MUST be the singular/base form (e.g., "cat" not "cats", "run" not "running", "go" not "goes")
-- For verbs, use the infinitive/base form (e.g., "run", "eat", "be" not "runs", "eating", "was")
+- English translation MUST be the dictionary form (infinitive for verbs, singular for nouns)
+- For verbs, use the infinitive form WITHOUT "to" (e.g., "talk" not "talked/talking/talks", "eat" not "ate/eating/eats")
+- For nouns, use singular form (e.g., "cat" not "cats", "house" not "houses")
 - DO NOT escape quotes in Danish text
 - Return ONLY the JSON object"""
         
@@ -135,7 +136,7 @@ Requirements:
             response = client.chat.completions.create(
                 model=AppConfig.OPENAI_MODEL,
                 messages=[
-                    {"role": "system", "content": "You are a Danish language teacher specializing in creating natural example sentences. Return ONLY valid JSON. NEVER use backslash-quote (\\\" ) in JSON values. Use normal quotes in Danish text. Focus on creating clear, contextual sentences that demonstrate word usage."},
+                    {"role": "system", "content": "You are a Danish language teacher specializing in creating natural example sentences. Return ONLY valid JSON. NEVER use backslash-quote (\\\" ) in JSON values. Use normal quotes in Danish text. Focus on creating clear, contextual sentences that demonstrate word usage. For English translations, always use the dictionary form: infinitive for verbs (e.g., 'talk' not 'talked'), singular for nouns (e.g., 'cat' not 'cats')."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=token_limit,
@@ -378,7 +379,7 @@ Requirements:
 Return your response as valid JSON in this exact format:
 {{
     "word": "{word}",
-    "english_translation": "singular/base form of English word",
+    "english_translation": "dictionary form (infinitive for verbs, singular for nouns)",
     "example_sentences": [
         {{
             "danish": "Danish sentence using {word}",
@@ -400,7 +401,9 @@ Requirements:
 - Make sentences appropriate for {self.cefr_level} level
 - Provide 3 different example sentences showing different contexts/uses
 - Focus on creating natural, contextual sentences
-- English translation MUST be the singular/base form (e.g., "cat" not "cats", "run" not "running", "go" not "goes")
+- English translation MUST be the dictionary form (infinitive for verbs, singular for nouns)
+- For verbs, use the infinitive form WITHOUT "to" (e.g., "talk" not "talked/talking/talks", "eat" not "ate/eating/eats")
+- For nouns, use singular form (e.g., "cat" not "cats", "house" not "houses")
 - Return ONLY valid JSON, no additional text or formatting"""
             
             try:
@@ -408,7 +411,7 @@ Requirements:
                 response = client.chat.completions.create(
                     model=AppConfig.OPENAI_MODEL,
                     messages=[
-                        {"role": "system", "content": "You are a Danish language teacher specializing in creating natural example sentences. Always respond with valid JSON only, no additional text or formatting. Focus on creating clear, contextual sentences that demonstrate word usage."},
+                        {"role": "system", "content": "You are a Danish language teacher specializing in creating natural example sentences. Always respond with valid JSON only, no additional text or formatting. Focus on creating clear, contextual sentences that demonstrate word usage. For English translations, always use the dictionary form: infinitive for verbs (e.g., 'talk' not 'talked'), singular for nouns (e.g., 'cat' not 'cats')."},
                         {"role": "user", "content": prompt}
                     ],
                     max_tokens=AppConfig.OPENAI_MAX_TOKENS,
