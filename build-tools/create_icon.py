@@ -6,6 +6,23 @@ import os
 import sys
 import math
 
+def apply_rounded_corners(img, radius):
+    """Apply rounded corners to an image with macOS-style corner radius."""
+    # Create a mask with rounded corners
+    mask = Image.new('L', img.size, 0)
+    mask_draw = ImageDraw.Draw(mask)
+    
+    # Draw a rounded rectangle as the mask
+    mask_draw.rounded_rectangle(
+        [(0, 0), img.size], 
+        radius=radius, 
+        fill=255
+    )
+    
+    # Apply the mask to the image
+    img.putalpha(mask)
+    return img
+
 def create_icon():
     print("Starting icon creation...")
     # Create a 1024x1024 image with gradient background
