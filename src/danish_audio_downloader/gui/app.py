@@ -34,6 +34,7 @@ class DanishAudioApp(QMainWindow):
         self.pending_sentence_generation = {}
         self.final_sentence_results = ""
         self.structured_word_data = []  # Store structured data from sentence worker
+        self.ordnet_dictionary_data = {}  # Store dictionary data from Ordnet
         
         # Set up the UI
         self.init_ui()
@@ -154,7 +155,7 @@ class DanishAudioApp(QMainWindow):
         self.worker.finished_signal.connect(self._audio_download_finished)
         self.worker.start()
     
-    def _audio_download_finished(self, successful, failed):
+    def _audio_download_finished(self, successful, failed, dictionary_data):
         """Handle completion of audio download and start sentence generation."""
         self.main_tab.log_message("\n=== Audio Download Complete ===")
         self.main_tab.log_message(f"Successfully downloaded: {len(successful)} audio files")
@@ -162,6 +163,13 @@ class DanishAudioApp(QMainWindow):
             self.main_tab.log_message(f"Failed to download: {len(failed)} audio files")
             for word in failed:
                 self.main_tab.log_message(f"  - {word}")
+        
+        # Store dictionary data for later use
+        self.ordnet_dictionary_data = dictionary_data
+        
+        # Log dictionary data collection
+        definitions_found = sum(1 for data in dictionary_data.values() if data.get('ordnet_found'))
+        self.main_tab.log_message(f"Collected dictionary data for {definitions_found} words from Ordnet")
         
         # Start sentence generation phase
         self._start_sentence_generation_phase()
@@ -173,7 +181,12 @@ class DanishAudioApp(QMainWindow):
         params = self.pending_sentence_generation
         
         # Create and start the sentence worker thread
-        self.sentence_worker = SentenceWorker(params['words'], params['cefr_level'], params['api_key'])
+        self.sentence_worker = SentenceWorker(
+            params['words'], 
+            params['cefr_level'], 
+            params['api_key'],
+            self.ordnet_dictionary_data  # Pass dictionary data
+        )
         self.sentence_worker.update_signal.connect(self.main_tab.log_message)
         self.sentence_worker.progress_signal.connect(self.main_tab.update_sentence_progress)
         self.sentence_worker.finished_signal.connect(self._sentence_generation_finished)
@@ -478,6 +491,7 @@ class DanishAudioApp(QMainWindow):
         self.final_sentence_results = ""
         self.pending_sentence_generation = {}
         self.structured_word_data = []
+        self.ordnet_dictionary_data = {}
         
         # Force garbage collection to clean up resources
         import gc

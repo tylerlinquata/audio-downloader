@@ -19,11 +19,12 @@ class SentenceWorker(QThread):
     finished_signal = pyqtSignal(list, dict)  # word_data_list, word_translations
     error_signal = pyqtSignal(str)  # error message
 
-    def __init__(self, words: List[str], cefr_level: str, api_key: str) -> None:
+    def __init__(self, words: List[str], cefr_level: str, api_key: str, ordnet_data: Optional[Dict] = None) -> None:
         super().__init__()
         self.words = words
         self.cefr_level = cefr_level
         self.api_key = api_key
+        self.ordnet_data = ordnet_data or {}
         self.abort_flag = False
 
     def run(self) -> None:
@@ -87,7 +88,7 @@ class SentenceWorker(QThread):
         # Create batch prompt for multiple words
         words_json = ', '.join([f'"{word}"' for word in words_batch])
         
-        prompt = f"""For the Danish words [{words_json}], provide detailed language information and example sentences.
+        prompt = f"""For the Danish words [{words_json}], provide example sentences and English translations.
 
 CRITICAL: Return ONLY valid JSON. No escaping quotes - use normal quotes in Danish text.
 
@@ -96,13 +97,7 @@ Use this EXACT format:
     "words": [
         {{
             "word": "word1",
-            "pronunciation": "/pronunciation/",
-            "word_type": "substantiv",
-            "gender": "en",
-            "plural": "plural form",
-            "inflections": "other forms",
-            "danish_definition": "Danish definition",
-            "english_translation": "single English word",
+            "english_translation": "single English word (base form)",
             "example_sentences": [
                 {{
                     "danish": "Danish sentence with normal quotes",
@@ -125,6 +120,8 @@ Requirements:
 - Use exact word in Danish sentences
 - CEFR level: {self.cefr_level}
 - 3 example sentences per word
+- Focus on creating natural example sentences
+- English translation should be base form of the word
 - DO NOT escape quotes in Danish text
 - Return ONLY the JSON object"""
         
@@ -137,7 +134,7 @@ Requirements:
             response = client.chat.completions.create(
                 model=AppConfig.OPENAI_MODEL,
                 messages=[
-                    {"role": "system", "content": "You are a Danish language teacher. Return ONLY valid JSON. NEVER use backslash-quote (\\\" ) in JSON values. Use normal quotes in Danish text. Follow JSON syntax exactly."},
+                    {"role": "system", "content": "You are a Danish language teacher specializing in creating natural example sentences. Return ONLY valid JSON. NEVER use backslash-quote (\\\" ) in JSON values. Use normal quotes in Danish text. Focus on creating clear, contextual sentences that demonstrate word usage."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=token_limit,
@@ -168,6 +165,39 @@ Requirements:
                         
                         # Store English translation for image fetching using original word
                         original_word = word_data['original_word']
+                        if word_data.get('english_translation'):
+                            word_translations[original_word] = word_data['english_translation'].lower().strip()
+                        
+                        # Merge with Ordnet data if available
+                        if original_word in self.ordnet_data:
+                            ordnet_info = self.ordnet_data[original_word]
+                            # Use Ordnet data for definitions and grammar, but keep ChatGPT sentences
+                            if ordnet_info.get('danish_definition'):
+                                word_data['danish_definition'] = ordnet_info['danish_definition']
+                            if ordnet_info.get('pronunciation'):
+                                word_data['pronunciation'] = ordnet_info['pronunciation']
+                            if ordnet_info.get('word_type'):
+                                word_data['word_type'] = ordnet_info['word_type']
+                            if ordnet_info.get('gender'):
+                                word_data['gender'] = ordnet_info['gender']
+                            if ordnet_info.get('plural'):
+                                word_data['plural'] = ordnet_info['plural']
+                            if ordnet_info.get('inflections'):
+                                word_data['inflections'] = ordnet_info['inflections']
+                            # Use ChatGPT for English translation if Ordnet doesn't have it
+                            if not word_data.get('english_translation') and ordnet_info.get('english_translation'):
+                                word_data['english_translation'] = ordnet_info['english_translation']
+                        
+                        # Set default values for missing fields
+                        word_data.setdefault('pronunciation', '')
+                        word_data.setdefault('word_type', '')
+                        word_data.setdefault('gender', '')
+                        word_data.setdefault('plural', '')
+                        word_data.setdefault('inflections', '')
+                        word_data.setdefault('danish_definition', '')
+                        word_data.setdefault('english_translation', '')
+                        
+                        # Update image lookup with English translation
                         if word_data.get('english_translation'):
                             word_translations[original_word] = word_data['english_translation'].lower().strip()
                     
@@ -342,18 +372,12 @@ Requirements:
             self.update_signal.emit(f"Individual processing: {word} ({i+1}/{len(words_batch)})")
             
             # Create the prompt for structured JSON response (original individual logic)
-            prompt = f"""For the Danish word "{word}", please provide detailed language information and example sentences.
+            prompt = f"""For the Danish word "{word}", please provide example sentences and English translation.
 
 Return your response as valid JSON in this exact format:
 {{
     "word": "{word}",
-    "pronunciation": "/pronunciation/",
-    "word_type": "substantiv|verbum|adjektiv|etc",
-    "gender": "en|et|null",
-    "plural": "plural form or null",
-    "inflections": "other forms, declensions, conjugations",
-    "danish_definition": "brief Danish definition",
-    "english_translation": "main English translation, it should be a single word. If the word has multiple meanings, provide the most common one. If the word is plural, provide the singular form. Be sure to always use the base form of the word.",
+    "english_translation": "main English translation (base form)",
     "example_sentences": [
         {{
             "danish": "Danish sentence using {word}",
@@ -374,6 +398,8 @@ Requirements:
 - Use the exact word "{word}" in each Danish sentence (not inflected forms)
 - Make sentences appropriate for {self.cefr_level} level
 - Provide 3 different example sentences showing different contexts/uses
+- Focus on creating natural, contextual sentences
+- English translation should be the base form of the word
 - Return ONLY valid JSON, no additional text or formatting"""
             
             try:
@@ -381,7 +407,7 @@ Requirements:
                 response = client.chat.completions.create(
                     model=AppConfig.OPENAI_MODEL,
                     messages=[
-                        {"role": "system", "content": "You are a helpful Danish language teacher. Always respond with valid JSON only, no additional text or formatting."},
+                        {"role": "system", "content": "You are a Danish language teacher specializing in creating natural example sentences. Always respond with valid JSON only, no additional text or formatting. Focus on creating clear, contextual sentences that demonstrate word usage."},
                         {"role": "user", "content": prompt}
                     ],
                     max_tokens=AppConfig.OPENAI_MAX_TOKENS,
@@ -396,6 +422,35 @@ Requirements:
                     # Preserve the original user input word
                     word_data['original_word'] = word
                     
+                    # Merge with Ordnet data if available
+                    if word in self.ordnet_data:
+                        ordnet_info = self.ordnet_data[word]
+                        # Use Ordnet data for definitions and grammar, but keep ChatGPT sentences
+                        if ordnet_info.get('danish_definition'):
+                            word_data['danish_definition'] = ordnet_info['danish_definition']
+                        if ordnet_info.get('pronunciation'):
+                            word_data['pronunciation'] = ordnet_info['pronunciation']
+                        if ordnet_info.get('word_type'):
+                            word_data['word_type'] = ordnet_info['word_type']
+                        if ordnet_info.get('gender'):
+                            word_data['gender'] = ordnet_info['gender']
+                        if ordnet_info.get('plural'):
+                            word_data['plural'] = ordnet_info['plural']
+                        if ordnet_info.get('inflections'):
+                            word_data['inflections'] = ordnet_info['inflections']
+                        # Use ChatGPT for English translation if Ordnet doesn't have it
+                        if not word_data.get('english_translation') and ordnet_info.get('english_translation'):
+                            word_data['english_translation'] = ordnet_info['english_translation']
+                    
+                    # Set default values for missing fields
+                    word_data.setdefault('pronunciation', '')
+                    word_data.setdefault('word_type', '')
+                    word_data.setdefault('gender', '')
+                    word_data.setdefault('plural', '')
+                    word_data.setdefault('inflections', '')
+                    word_data.setdefault('danish_definition', '')
+                    word_data.setdefault('english_translation', '')
+                    
                     # Store the structured data directly
                     word_data_list.append(word_data)
                     
@@ -403,7 +458,7 @@ Requirements:
                     if word_data.get('english_translation'):
                         word_translations[word] = word_data['english_translation'].lower().strip()
                 else:
-                    # Fallback with error data structure
+                    # Fallback with error data structure, but include Ordnet data if available
                     error_data = {
                         'word': word,
                         'original_word': word,  # Preserve original word even in error cases
@@ -417,6 +472,28 @@ Requirements:
                         'english_translation': '',
                         'example_sentences': []
                     }
+                    
+                    # Add Ordnet data if available
+                    if word in self.ordnet_data:
+                        ordnet_info = self.ordnet_data[word]
+                        if ordnet_info.get('danish_definition'):
+                            error_data['danish_definition'] = ordnet_info['danish_definition']
+                        if ordnet_info.get('pronunciation'):
+                            error_data['pronunciation'] = ordnet_info['pronunciation']
+                        if ordnet_info.get('word_type'):
+                            error_data['word_type'] = ordnet_info['word_type']
+                        if ordnet_info.get('gender'):
+                            error_data['gender'] = ordnet_info['gender']
+                        if ordnet_info.get('plural'):
+                            error_data['plural'] = ordnet_info['plural']
+                        if ordnet_info.get('inflections'):
+                            error_data['inflections'] = ordnet_info['inflections']
+                        if ordnet_info.get('english_translation'):
+                            error_data['english_translation'] = ordnet_info['english_translation']
+                        # Clear the error if we have good Ordnet data
+                        if ordnet_info.get('ordnet_found'):
+                            error_data['error'] = 'Could not generate example sentences, but dictionary data available'
+                    
                     word_data_list.append(error_data)
                 
                 # Add a small delay to respect rate limits
@@ -439,6 +516,28 @@ Requirements:
                     'english_translation': '',
                     'example_sentences': []
                 }
+                
+                # Add Ordnet data if available
+                if word in self.ordnet_data:
+                    ordnet_info = self.ordnet_data[word]
+                    if ordnet_info.get('danish_definition'):
+                        error_data['danish_definition'] = ordnet_info['danish_definition']
+                    if ordnet_info.get('pronunciation'):
+                        error_data['pronunciation'] = ordnet_info['pronunciation']
+                    if ordnet_info.get('word_type'):
+                        error_data['word_type'] = ordnet_info['word_type']
+                    if ordnet_info.get('gender'):
+                        error_data['gender'] = ordnet_info['gender']
+                    if ordnet_info.get('plural'):
+                        error_data['plural'] = ordnet_info['plural']
+                    if ordnet_info.get('inflections'):
+                        error_data['inflections'] = ordnet_info['inflections']
+                    if ordnet_info.get('english_translation'):
+                        error_data['english_translation'] = ordnet_info['english_translation']
+                    # Update error message if we have good Ordnet data
+                    if ordnet_info.get('ordnet_found'):
+                        error_data['error'] = f'Could not generate example sentences: {str(e)}, but dictionary data available'
+                
                 word_data_list.append(error_data)
         
         return word_data_list, word_translations

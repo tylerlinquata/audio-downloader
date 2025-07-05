@@ -4,7 +4,7 @@ Core audio downloader functionality for Danish pronunciations.
 
 import os
 import time
-from typing import Optional, List, Tuple, Any
+from typing import Optional, List, Tuple, Any, Dict
 import requests
 import shutil
 from urllib.parse import urljoin
@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup
 
 from ..utils.config import HTTPConfig, AppConfig
 from ..utils.validators import FileValidator
+from ..utils.ordnet_parser import OrdnetParser
 
 
 class DanishAudioDownloader:
@@ -26,6 +27,9 @@ class DanishAudioDownloader:
         self.base_url = AppConfig.BASE_URL
         self.session = requests.Session()
         self.session.headers.update(HTTPConfig.HEADERS)
+        
+        # Store dictionary data collected during download
+        self.word_dictionary_data = {}
         
         # Create output directory if it doesn't exist
         if not os.path.exists(self.output_dir):
@@ -69,15 +73,21 @@ class DanishAudioDownloader:
             
             while not success and retries < max_retries:
                 try:
-                    if self._download_word_audio(word):
+                    result = self._download_word_audio(word)
+                    if result['success']:
                         successful.append(word)
                         success = True
                         self.log(f"✅ Successfully downloaded audio for '{word}'")
+                        # Store dictionary data for later use
+                        self.word_dictionary_data[word] = result['dictionary_data']
                     else:
                         retries += 1
                         if retries >= max_retries:
                             failed.append(word)
                             self.log(f"❌ Failed to find audio for '{word}' after {max_retries} attempts")
+                            # Store dictionary data even for failed downloads (might have definition)
+                            if result.get('dictionary_data'):
+                                self.word_dictionary_data[word] = result['dictionary_data']
                         else:
                             self.log(f"Retrying ({retries}/{max_retries})...")
                             time.sleep(2)  # Wait before retrying
@@ -140,16 +150,30 @@ class DanishAudioDownloader:
         """
         return FileValidator.is_valid_audio_file(file_path, AppConfig.MIN_AUDIO_FILE_SIZE)
     
-    def _download_word_audio(self, word: str) -> bool:
+    def get_dictionary_data(self) -> Dict[str, Dict]:
         """
-        Download the audio file for a single Danish word from ordnet.dk.
+        Get the dictionary data collected during the download process.
+        
+        Returns:
+            dict: Dictionary mapping words to their dictionary data
+        """
+        return self.word_dictionary_data
+    
+    def _download_word_audio(self, word: str) -> Dict:
+        """
+        Download the audio file for a single Danish word from ordnet.dk and extract dictionary data.
         
         Args:
             word: The Danish word to download audio for.
             
         Returns:
-            bool: True if download was successful, False otherwise.
+            dict: Result containing success status and dictionary data
         """
+        result = {
+            'success': False,
+            'dictionary_data': None
+        }
+        
         # Construct the URL for ordnet.dk search
         url = f"{self.base_url}?query={word}"
         self.log(f"Searching for '{word}' at URL: {url}")
@@ -163,31 +187,49 @@ class DanishAudioDownloader:
             # Parse the HTML
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Look for pronunciation section
-            udtale_div = soup.find('div', id='id-udt')
-            if not udtale_div:
-                self.log(f"No pronunciation section found for '{word}'")
-                return False
+            # Extract dictionary data first
+            dictionary_data = OrdnetParser.parse_word_data(soup, word)
+            result['dictionary_data'] = dictionary_data
             
-            # Find all audio fallback links
-            audio_links = udtale_div.find_all('a', id=lambda x: x and x.endswith('_fallback'))
+            # Log dictionary data extraction
+            if dictionary_data.get('ordnet_found'):
+                self.log(f"✅ Extracted dictionary data for '{word}'")
+                if dictionary_data.get('danish_definition'):
+                    self.log(f"   Definition: {dictionary_data['danish_definition'][:100]}...")
+                if dictionary_data.get('word_type'):
+                    self.log(f"   Type: {dictionary_data['word_type']}")
+                if dictionary_data.get('pronunciation'):
+                    self.log(f"   Pronunciation: {dictionary_data['pronunciation']}")
+            else:
+                self.log(f"⚠️  No dictionary data found for '{word}' - {dictionary_data.get('error', 'Unknown error')}")
             
-            if not audio_links:
-                self.log(f"No audio links found for '{word}'")
-                return False
-            
-            # Get the first audio URL
-            audio_url = audio_links[0].get('href')
+            # Now try to download audio
+            audio_url = dictionary_data.get('audio_url')
             if not audio_url:
-                self.log(f"No audio URL found for '{word}'")
-                return False
+                # Fallback to original audio extraction method
+                udtale_div = soup.find('div', id='id-udt')
+                if not udtale_div:
+                    self.log(f"No pronunciation section found for '{word}'")
+                    return result
+                
+                # Find all audio fallback links
+                audio_links = udtale_div.find_all('a', id=lambda x: x and x.endswith('_fallback'))
+                
+                if not audio_links:
+                    self.log(f"No audio links found for '{word}'")
+                    return result
+                
+                # Get the first audio URL
+                audio_url = audio_links[0].get('href')
+                if not audio_url:
+                    self.log(f"No audio URL found for '{word}'")
+                    return result
+                
+                # Make sure we have a full URL
+                if not audio_url.startswith('http'):
+                    audio_url = urljoin('https://ordnet.dk', audio_url)
             
             self.log(f"Found audio URL: {audio_url}")
-            
-            # Make sure we have a full URL
-            if not audio_url.startswith('http'):
-                audio_url = urljoin('https://ordnet.dk', audio_url)
-                self.log(f"Full audio URL: {audio_url}")
             
             # Download the audio file
             self.log(f"Downloading audio file...")
@@ -206,7 +248,7 @@ class DanishAudioDownloader:
                 self.log(f"Downloaded file for '{word}' is not valid")
                 # Remove invalid file
                 os.remove(output_path)
-                return False
+                return result
                 
             self.log(f"Audio file saved to {output_path}")
             
@@ -214,11 +256,12 @@ class DanishAudioDownloader:
             if self.anki_folder:
                 self._move_to_anki_media(output_path, word)
             
-            return True
+            result['success'] = True
+            return result
                 
         except requests.RequestException as e:
             self.log(f"Request error for '{word}': {str(e)}")
-            return False
+            return result
         except Exception as e:
             self.log(f"Error processing '{word}': {str(e)}")
-            return False
+            return result

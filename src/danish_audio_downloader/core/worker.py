@@ -2,7 +2,7 @@
 Worker thread for downloading audio files with concurrent processing.
 """
 
-from typing import List
+from typing import List, Dict
 from PyQt5.QtCore import QThread, pyqtSignal
 from .concurrent_downloader import ConcurrentAudioDownloader
 
@@ -11,7 +11,7 @@ class Worker(QThread):
     """Worker thread for downloading audio files."""
     update_signal = pyqtSignal(str)
     progress_signal = pyqtSignal(int, int)  # current, total
-    finished_signal = pyqtSignal(list, list)  # successful, failed
+    finished_signal = pyqtSignal(list, list, dict)  # successful, failed, dictionary_data
 
     def __init__(self, words: List[str], output_dir: str, copy_to_anki: bool, anki_folder: str) -> None:
         super().__init__()
@@ -29,8 +29,10 @@ class Worker(QThread):
             signal_handler=self
         )
         successful, failed = downloader.download_audio_for_words(self.words)
+        dictionary_data = downloader.get_dictionary_data()
+        
         if not self.abort_flag:
-            self.finished_signal.emit(successful, failed)
+            self.finished_signal.emit(successful, failed, dictionary_data)
 
     def abort(self) -> None:
         """Abort the download process."""

@@ -83,7 +83,11 @@ class ConcurrentAudioDownloader(DanishAudioDownloader):
         
         for attempt in range(max_retries):
             try:
-                if self._download_word_audio(word):
+                result = self._download_word_audio(word)
+                if result['success']:
+                    # Store dictionary data for later use
+                    if result.get('dictionary_data'):
+                        self.word_dictionary_data[word] = result['dictionary_data']
                     return True
                 if attempt < max_retries - 1:
                     time.sleep(0.5 * (attempt + 1))  # Exponential backoff
