@@ -97,7 +97,7 @@ Use this EXACT format:
     "words": [
         {{
             "word": "word1",
-            "english_translation": "single English word (base form)",
+            "english_translation": "singular form of English word",
             "example_sentences": [
                 {{
                     "danish": "Danish sentence with normal quotes",
@@ -121,7 +121,7 @@ Requirements:
 - CEFR level: {self.cefr_level}
 - 3 example sentences per word
 - Focus on creating natural example sentences
-- English translation should be base form of the word
+- English translation MUST be the singular/base form (e.g., "cat" not "cats", "run" not "running", "go" not "goes")
 - DO NOT escape quotes in Danish text
 - Return ONLY the JSON object"""
         
@@ -377,7 +377,7 @@ Requirements:
 Return your response as valid JSON in this exact format:
 {{
     "word": "{word}",
-    "english_translation": "main English translation (base form)",
+    "english_translation": "singular/base form of English word",
     "example_sentences": [
         {{
             "danish": "Danish sentence using {word}",
@@ -399,7 +399,7 @@ Requirements:
 - Make sentences appropriate for {self.cefr_level} level
 - Provide 3 different example sentences showing different contexts/uses
 - Focus on creating natural, contextual sentences
-- English translation should be the base form of the word
+- English translation MUST be the singular/base form (e.g., "cat" not "cats", "run" not "running", "go" not "goes")
 - Return ONLY valid JSON, no additional text or formatting"""
             
             try:
