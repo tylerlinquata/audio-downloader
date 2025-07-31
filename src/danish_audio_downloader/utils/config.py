@@ -44,6 +44,7 @@ class AppConfig:
     
     # URLs
     BASE_URL = "https://ordnet.dk/ddo/ordbog"
+    FORVO_API_BASE_URL = "https://apifree.forvo.com"
     
     # File patterns
     AUDIO_FILE_EXTENSION = ".mp3"
@@ -88,12 +89,21 @@ class AppConfig:
         """Set the CEFR level setting."""
         self.settings.setValue("cefr_level", level)
     
+    def get_forvo_api_key(self) -> str:
+        """Get the Forvo API key setting."""
+        return self.settings.value("forvo_api_key", "")
+    
+    def set_forvo_api_key(self, key: str) -> None:
+        """Set the Forvo API key setting."""
+        self.settings.setValue("forvo_api_key", key)
+    
     def get_all_settings(self) -> dict:
         """Get all settings as a dictionary."""
         return {
             "output_dir": self.get_output_dir(),
             "anki_dir": self.get_anki_dir(),
             "openai_api_key": self.get_openai_api_key(),
+            "forvo_api_key": self.get_forvo_api_key(),
             "cefr_level": self.get_cefr_level()
         }
     

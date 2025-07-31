@@ -25,5 +25,6 @@ class SettingsManager:
             'output_dir': self.settings.value("output_dir", default_output),
             'anki_dir': self.settings.value("anki_dir", default_anki),
             'openai_api_key': self.settings.value("openai_api_key", ""),
+            'forvo_api_key': self.settings.value("forvo_api_key", ""),
             'cefr_level': self.settings.value("cefr_level", "B1")
         }

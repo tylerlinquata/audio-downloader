@@ -79,6 +79,12 @@ class SettingsTab(QWidget):
         self.api_key_input.setPlaceholderText("Enter your OpenAI API key")
         api_layout.addRow("OpenAI API Key:", self.api_key_input)
         
+        # Forvo API Key
+        self.forvo_api_key_input = QLineEdit()
+        self.forvo_api_key_input.setEchoMode(QLineEdit.Password)
+        self.forvo_api_key_input.setPlaceholderText("Enter your Forvo API key")
+        api_layout.addRow("Forvo API Key:", self.forvo_api_key_input)
+        
         api_group.setLayout(api_layout)
         layout.addWidget(api_group)
         
@@ -115,6 +121,7 @@ class SettingsTab(QWidget):
             'output_dir': self.output_dir_input.text(),
             'anki_dir': self.anki_dir_input.text(),
             'openai_api_key': self.api_key_input.text(),
+            'forvo_api_key': self.forvo_api_key_input.text(),
             'cefr_level': self.cefr_combo.currentText()
         }
     
@@ -128,6 +135,9 @@ class SettingsTab(QWidget):
             
         if 'openai_api_key' in settings_dict and settings_dict['openai_api_key']:
             self.api_key_input.setText(settings_dict['openai_api_key'])
+            
+        if 'forvo_api_key' in settings_dict and settings_dict['forvo_api_key']:
+            self.forvo_api_key_input.setText(settings_dict['forvo_api_key'])
             
         if 'cefr_level' in settings_dict and settings_dict['cefr_level']:
             self.cefr_combo.setCurrentText(settings_dict['cefr_level'])

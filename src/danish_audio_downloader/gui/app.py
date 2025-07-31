@@ -90,11 +90,19 @@ class DanishAudioApp(QMainWindow):
             QMessageBox.warning(self, "No Words", "Please enter words to process.")
             return
         
-        # Get API key for sentence generation from settings
+        # Get API keys and settings
         settings = self.settings_tab.get_settings()
-        api_key = settings.get('openai_api_key', '').strip()
-        if not api_key:
-            QMessageBox.warning(self, "No API Key", "Please enter your OpenAI API key in the Settings tab.")
+        
+        # Check for OpenAI API key for sentence generation
+        openai_api_key = settings.get('openai_api_key', '').strip()
+        if not openai_api_key:
+            QMessageBox.warning(self, "No OpenAI API Key", "Please enter your OpenAI API key in the Settings tab.")
+            return
+        
+        # Check for Forvo API key for audio downloads
+        forvo_api_key = settings.get('forvo_api_key', '').strip()
+        if not forvo_api_key:
+            QMessageBox.warning(self, "No Forvo API Key", "Please enter your Forvo API key in the Settings tab.")
             return
         
         # Get output directory settings
@@ -135,21 +143,21 @@ class DanishAudioApp(QMainWindow):
             self.main_tab.log_message(f"  - {word}")
         
         # Start with audio download first
-        self._start_audio_download(words, output_dir, anki_folder, api_key, settings.get('cefr_level', 'B1'))
+        self._start_audio_download(words, output_dir, anki_folder, openai_api_key, forvo_api_key, settings.get('cefr_level', 'B1'))
     
-    def _start_audio_download(self, words, output_dir, anki_folder, api_key, cefr_level):
+    def _start_audio_download(self, words, output_dir, anki_folder, openai_api_key, forvo_api_key, cefr_level):
         """Start the audio download phase."""
-        self.main_tab.log_message("\n=== Phase 1: Downloading Audio Files ===")
+        self.main_tab.log_message("\n=== Phase 1: Downloading Audio Files from Forvo ===")
         
         # Store the sentence generation parameters for later
         self.pending_sentence_generation = {
             'words': words,
-            'api_key': api_key,
+            'api_key': openai_api_key,
             'cefr_level': cefr_level
         }
         
-        # Create and start the audio worker thread
-        self.worker = Worker(words, output_dir, False, anki_folder)  # Don't copy to Anki yet
+        # Create and start the audio worker thread with Forvo API key
+        self.worker = Worker(words, output_dir, False, anki_folder, forvo_api_key)
         self.worker.update_signal.connect(self.main_tab.log_message)
         self.worker.progress_signal.connect(self.main_tab.update_audio_progress)
         self.worker.finished_signal.connect(self._audio_download_finished)
@@ -158,13 +166,13 @@ class DanishAudioApp(QMainWindow):
     def _audio_download_finished(self, successful, failed, dictionary_data):
         """Handle completion of audio download and start sentence generation."""
         self.main_tab.log_message("\n=== Audio Download Complete ===")
-        self.main_tab.log_message(f"Successfully downloaded: {len(successful)} audio files")
+        self.main_tab.log_message(f"Successfully downloaded: {len(successful)} audio files from Forvo")
         if failed:
             self.main_tab.log_message(f"Failed to download: {len(failed)} audio files")
             for word in failed:
                 self.main_tab.log_message(f"  - {word}")
         
-        # Store dictionary data for later use
+        # Store dictionary data for later use (from Ordnet dictionary lookups)
         self.ordnet_dictionary_data = dictionary_data
         
         # Log dictionary data collection

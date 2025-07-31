@@ -1,5 +1,8 @@
 """
 Core audio downloader functionality for Danish pronunciations.
+This module has been updated to use Forvo API for audio downloads.
+The DanishAudioDownloader class is now primarily for backward compatibility.
+New implementations should use ForvoAudioProvider directly.
 """
 
 import os
@@ -16,7 +19,13 @@ from ..utils.ordnet_parser import OrdnetParser
 
 
 class DanishAudioDownloader:
-    """Downloads audio pronunciations for Danish words from ordnet.dk."""
+    """
+    Downloads audio pronunciations for Danish words.
+    
+    DEPRECATED: This class now primarily serves for backward compatibility.
+    For new implementations, use ForvoAudioProvider which downloads audio from Forvo API.
+    This class still provides Ordnet dictionary parsing functionality.
+    """
 
     def __init__(self, output_dir: str = "danish_pronunciations", anki_folder: str = "", signal_handler: Optional[Any] = None) -> None:
         """Initialize the downloader with the given output directory."""
