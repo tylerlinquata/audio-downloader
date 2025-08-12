@@ -97,12 +97,9 @@ class CardProcessor:
                 if isinstance(sentence_data, dict) and sentence_data.get('danish'):
                     sentences.append(sentence_data['danish'])
             
-            if len(sentences) >= 2:  # Changed from 3 to 2 to match card generation
+            if len(sentences) >= 2:  # Need exactly 2 sentences
                 # Generate the card types for this word with available sentences
-                if len(sentences) >= 3:
-                    cards = self._generate_anki_cards_from_structured_data(word, sentences[:3], word_data)
-                else:
-                    cards = self._generate_anki_cards_from_structured_data(word, sentences, word_data)
+                cards = self._generate_anki_cards_from_structured_data(word, sentences, word_data)
                 
                 csv_data.extend(cards)
                 processed_words += 1
@@ -185,8 +182,8 @@ class CardProcessor:
             ''                                            # • Lav 2 kort? - empty for card 2
         ])
         
-        # Card Type 3: New sentence with blank (only if we have 3 or more sentences)
-        if len(sentences) >= 3:
+        # Card Type 3: New sentence with blank (use second sentence if available)
+        if len(sentences) >= 2:
             sentence2_with_blank = self._remove_word_from_sentence(sentences[1], original_word, use_blank=True)
             cards.append([
                 sentence2_with_blank,                    # Front (Eksempel med ord fjernet eller blankt)
@@ -197,18 +194,7 @@ class CardProcessor:
                 f'{grammar_details} [sound:{original_word}.mp3]', # - Ekstra info (IPA, køn, bøjning) - Use original word for audio
                 ''                                       # • Lav 2 kort? - empty for card 3
             ])
-        elif len(sentences) >= 2:
-            # Use second sentence for card 3 if available
-            sentence2_with_blank = self._remove_word_from_sentence(sentences[1], original_word, use_blank=True)
-            cards.append([
-                sentence2_with_blank,                    # Front (Eksempel med ord fjernet eller blankt)
-                self._get_image_url(word),               # Front (Billede)
-                definition_clean,                        # Front (Definition, grundform, osv.)
-                original_word,                           # Back (et enkelt ord/udtryk, uden kontekst) - Use original word
-                sentences[1],                            # - Hele sætningen (intakt)
-                f'{grammar_details} [sound:{original_word}.mp3]', # - Ekstra info (IPA, køn, bøjning) - Use original word for audio
-                ''                                       # • Lav 2 kort? - empty for card 3
-            ])
+        # Note: Now we generate 3 cards using 2 sentences (sentence 1 twice, sentence 2 once)
         
         return cards
 
@@ -233,14 +219,9 @@ class CardProcessor:
                 if isinstance(sentence_data, dict) and sentence_data.get('danish'):
                     sentences.append(sentence_data['danish'])
             
-            if len(sentences) >= 2:  # Changed from 3 to 2 to be more lenient
+            if len(sentences) >= 2:  # Need exactly 2 sentences
                 # Generate cards for this word with available sentences
-                if len(sentences) >= 3:
-                    # Full 3-card generation
-                    word_cards = self._generate_anki_cards_from_structured_data(word, sentences[:3], word_data)
-                else:
-                    # Generate fewer cards with available sentences
-                    word_cards = self._generate_anki_cards_from_structured_data(word, sentences, word_data)
+                word_cards = self._generate_anki_cards_from_structured_data(word, sentences, word_data)
                 
                 # Add metadata for each card
                 english_translation = word_data.get('english_translation', 'Unknown')
@@ -329,53 +310,15 @@ class CardProcessor:
             return "Grammatik info nødvendig"
 
     def _remove_word_from_sentence(self, sentence, word_to_remove, use_blank=True):
-        """Remove word from sentence and optionally replace with blank."""
-        # Create patterns for the word and common inflected forms
-        base_word = word_to_remove.lower()
+        """Remove word from sentence and optionally replace with blank. 
+        Simplified version since we now validate that sentences contain the exact word."""
+        import re
+        
+        # Try exact match first (most common case now that we validate)
         patterns = [
             r'\b' + re.escape(word_to_remove) + r'\b',  # exact match
             r'\b' + re.escape(word_to_remove.capitalize()) + r'\b',  # capitalized
-            r'\b' + re.escape(word_to_remove.upper()) + r'\b',  # uppercase
         ]
-        
-        # Add common Danish inflections
-        if base_word.endswith('e'):
-            # For words ending in 'e', try without 'e' + common endings
-            stem = base_word[:-1]
-            patterns.extend([
-                r'\b' + re.escape(stem + 'en') + r'\b',  # definite form
-                r'\b' + re.escape(stem + 'er') + r'\b',  # plural
-                r'\b' + re.escape(stem + 'erne') + r'\b',  # definite plural
-            ])
-        else:
-            # For words not ending in 'e', add common endings
-            patterns.extend([
-                r'\b' + re.escape(base_word + 'en') + r'\b',  # definite form (en-words)
-                r'\b' + re.escape(base_word + 'et') + r'\b',  # neuter definite (et-words)
-                r'\b' + re.escape(base_word + 'e') + r'\b',   # adjective/verb form
-                r'\b' + re.escape(base_word + 'er') + r'\b',  # plural/present
-                r'\b' + re.escape(base_word + 'erne') + r'\b', # definite plural
-            ])
-        
-        # Special case for common double consonant patterns (e.g., kat -> katten)
-        if len(base_word) >= 2 and base_word[-1] == base_word[-2]:
-            # Double consonant at end (like "kat" -> "katt")
-            single_consonant = base_word[:-1]
-            patterns.extend([
-                r'\b' + re.escape(single_consonant + 'en') + r'\b',  # katten
-                r'\b' + re.escape(single_consonant + 'er') + r'\b',  # katter
-                r'\b' + re.escape(single_consonant + 'erne') + r'\b', # katterne
-            ])
-        elif len(base_word) >= 2:
-            # Try adding double consonant for inflection (kat -> katt -> katten)
-            last_consonant = base_word[-1]
-            if last_consonant not in 'aeiouæøå':  # if last letter is consonant
-                double_consonant_stem = base_word + last_consonant
-                patterns.extend([
-                    r'\b' + re.escape(double_consonant_stem + 'en') + r'\b',  # katten
-                    r'\b' + re.escape(double_consonant_stem + 'er') + r'\b',  # katter
-                    r'\b' + re.escape(double_consonant_stem + 'erne') + r'\b', # katterne
-                ])
         
         # Try each pattern
         result_sentence = sentence
@@ -386,6 +329,12 @@ class CardProcessor:
                 else:
                     result_sentence = re.sub(pattern, '', result_sentence, flags=re.IGNORECASE)
                 break
+        else:
+            # If no exact match found, log a warning and use the sentence as-is
+            if use_blank:
+                # For fill-in-the-blank, we need to indicate the issue
+                result_sentence = f"[Word '{word_to_remove}' not found] {sentence}"
+            # For no-blank version, just remove nothing and continue
         
         if not use_blank:
             # Clean up extra spaces and punctuation

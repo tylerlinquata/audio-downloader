@@ -4,6 +4,7 @@ Worker thread for generating example sentences using ChatGPT.
 
 import time
 import json
+import re
 from typing import List, Dict, Optional
 from PyQt5.QtCore import QThread, pyqtSignal
 import openai
@@ -90,7 +91,7 @@ class SentenceWorker(QThread):
         
         prompt = f"""For the Danish words [{words_json}], provide example sentences and English translations.
 
-CRITICAL: Return ONLY valid JSON. No escaping quotes - use normal quotes in Danish text.
+CRITICAL: Each sentence MUST contain the EXACT word as written - do not change its form or inflection.
 
 Use this EXACT format:
 {{
@@ -100,15 +101,11 @@ Use this EXACT format:
             "english_translation": "dictionary form (infinitive for verbs, singular for nouns)",
             "example_sentences": [
                 {{
-                    "danish": "Danish sentence with normal quotes",
+                    "danish": "Danish sentence containing the exact word word1",
                     "english": "English translation"
                 }},
                 {{
-                    "danish": "Another Danish sentence",
-                    "english": "English translation"
-                }},
-                {{
-                    "danish": "Third Danish sentence",
+                    "danish": "Another Danish sentence containing the exact word word1",
                     "english": "English translation"
                 }}
             ]
@@ -117,10 +114,12 @@ Use this EXACT format:
 }}
 
 Requirements:
-- Use exact word in Danish sentences
+- MANDATORY: Use each exact word as provided in the Danish sentences - do not change spelling, inflection, or form
+- If a word is inflected (like "rejser"), use that exact inflected form in the sentence
+- If a word is a base form (like "rejse"), use that exact base form in the sentence  
 - CEFR level: {self.cefr_level}
-- 3 example sentences per word
-- Focus on creating natural example sentences
+- 2 example sentences per word
+- Focus on creating natural example sentences that properly use the given word forms
 - English translation MUST be the dictionary form (infinitive for verbs, singular for nouns)
 - For verbs, use the infinitive form WITHOUT "to" (e.g., "talk" not "talked/talking/talks", "eat" not "ate/eating/eats")
 - For nouns, use singular form (e.g., "cat" not "cats", "house" not "houses")
@@ -162,11 +161,23 @@ Requirements:
                             # Fallback to the word from the response
                             word_data['original_word'] = word_data.get('word', '')
                         
+                        original_word = word_data['original_word']
+                        
+                        # VALIDATE: Check if sentences actually contain the user's word
+                        validated_sentences = self._validate_sentences_contain_word(word_data.get('example_sentences', []), original_word)
+                        
+                        if len(validated_sentences) < 2:  # Need at least 2 valid sentences
+                            self.update_signal.emit(f"Batch result for '{original_word}' doesn't contain the word, will retry individually...")
+                            # For batch processing, we'll mark this word for individual retry later
+                            word_data['needs_retry'] = True
+                        else:
+                            # Update with only the validated sentences
+                            word_data['example_sentences'] = validated_sentences
+                        
                         word_data_list.append(word_data)
                         processed_count += 1
                         
                         # Store English translation for image fetching using original word
-                        original_word = word_data['original_word']
                         if word_data.get('english_translation'):
                             word_translations[original_word] = word_data['english_translation'].lower().strip()
                         
@@ -205,6 +216,22 @@ Requirements:
                     
                 self.update_signal.emit(f"Successfully processed {processed_count} words in batch (requested {len(words_batch)})")
                 
+                # Check for words that need individual retry due to validation failures
+                retry_words = [word_data for word_data in word_data_list if word_data.get('needs_retry')]
+                if retry_words:
+                    self.update_signal.emit(f"Retrying {len(retry_words)} words individually due to validation failures...")
+                    for word_data in retry_words:
+                        original_word = word_data['original_word']
+                        self.update_signal.emit(f"Retrying individual sentence generation for '{original_word}'...")
+                        retry_result = self._retry_sentence_generation(client, original_word)
+                        if retry_result and len(self._validate_sentences_contain_word(retry_result.get('example_sentences', []), original_word)) >= 2:
+                            # Update the word_data with the new sentences
+                            word_data['example_sentences'] = retry_result['example_sentences']
+                            word_data['needs_retry'] = False  # Mark as resolved
+                            self.update_signal.emit(f"Successfully generated valid sentences for '{original_word}' on individual retry")
+                        else:
+                            self.update_signal.emit(f"Warning: Could not generate valid sentences for '{original_word}' even on individual retry")
+                
                 # If we got fewer words than expected, warn but continue
                 if processed_count < len(words_batch):
                     missing_count = len(words_batch) - processed_count
@@ -226,6 +253,64 @@ Requirements:
             return self._process_words_individually(client, words_batch)
         
         return word_data_list, word_translations
+    
+    def _validate_sentences_contain_word(self, sentences, target_word):
+        """Validate that sentences actually contain the target word (exact match)."""
+        valid_sentences = []
+        target_word_lower = target_word.lower()
+        
+        for sentence_data in sentences:
+            if isinstance(sentence_data, dict) and sentence_data.get('danish'):
+                danish_sentence = sentence_data['danish'].lower()
+                # Check for exact word match with word boundaries
+                pattern = r'\b' + re.escape(target_word_lower) + r'\b'
+                if re.search(pattern, danish_sentence):
+                    valid_sentences.append(sentence_data)
+        
+        return valid_sentences
+    
+    def _retry_sentence_generation(self, client, word):
+        """Retry sentence generation with a more specific prompt for a single word."""
+        retry_prompt = f"""The word is "{word}". Create exactly 2 Danish sentences that contain the EXACT word "{word}".
+
+CRITICAL REQUIREMENT: Each sentence MUST contain the literal word "{word}" exactly as written. 
+Do not use any other form - use "{word}" and only "{word}".
+
+Return ONLY this JSON format:
+{{
+    "word": "{word}",
+    "english_translation": "dictionary form",
+    "example_sentences": [
+        {{
+            "danish": "First sentence with {word}",
+            "english": "English translation"
+        }},
+        {{
+            "danish": "Second sentence with {word}",
+            "english": "English translation"  
+        }}
+    ]
+}}
+
+MANDATORY: The word "{word}" must appear exactly as written in each Danish sentence."""
+
+        try:
+            response = client.chat.completions.create(
+                model=AppConfig.OPENAI_MODEL,
+                messages=[
+                    {"role": "system", "content": "You are a Danish language teacher. You MUST use the exact word provided. Return ONLY valid JSON."},
+                    {"role": "user", "content": retry_prompt}
+                ],
+                max_tokens=AppConfig.OPENAI_MAX_TOKENS,
+                temperature=0.3  # Lower temperature for more precise adherence to instructions
+            )
+            
+            json_content = response.choices[0].message.content.strip()
+            return self._parse_response(json_content)
+            
+        except Exception as e:
+            self.update_signal.emit(f"Retry failed for '{word}': {str(e)}")
+            return None
 
     def _parse_batch_response(self, json_content: str):
         """Parse the JSON response from ChatGPT for batch processing with robust error handling."""
@@ -376,31 +461,31 @@ Requirements:
             # Create the prompt for structured JSON response (original individual logic)
             prompt = f"""For the Danish word "{word}", please provide example sentences and English translation.
 
+CRITICAL: Each sentence MUST contain the EXACT word "{word}" as written - do not change its form or inflection.
+
 Return your response as valid JSON in this exact format:
 {{
     "word": "{word}",
     "english_translation": "dictionary form (infinitive for verbs, singular for nouns)",
     "example_sentences": [
         {{
-            "danish": "Danish sentence using {word}",
+            "danish": "Danish sentence containing the exact word {word}",
             "english": "English translation"
         }},
         {{
-            "danish": "Danish sentence using {word}",
-            "english": "English translation"
-        }},
-        {{
-            "danish": "Danish sentence using {word}",
+            "danish": "Another Danish sentence containing the exact word {word}",
             "english": "English translation"
         }}
     ]
 }}
 
 Requirements:
-- Use the exact word "{word}" in each Danish sentence (not inflected forms)
+- MANDATORY: Use the exact word "{word}" in each Danish sentence - do not change its spelling, inflection, or form
+- If "{word}" is inflected (like "rejser"), use that exact inflected form in the sentence
+- If "{word}" is a base form (like "rejse"), use that exact base form in the sentence
 - Make sentences appropriate for {self.cefr_level} level
-- Provide 3 different example sentences showing different contexts/uses
-- Focus on creating natural, contextual sentences
+- Provide 2 different example sentences showing different contexts/uses
+- Focus on creating natural, contextual sentences that properly use the given word form
 - English translation MUST be the dictionary form (infinitive for verbs, singular for nouns)
 - For verbs, use the infinitive form WITHOUT "to" (e.g., "talk" not "talked/talking/talks", "eat" not "ate/eating/eats")
 - For nouns, use singular form (e.g., "cat" not "cats", "house" not "houses")
@@ -425,6 +510,20 @@ Requirements:
                 if word_data:
                     # Preserve the original user input word
                     word_data['original_word'] = word
+                    
+                    # VALIDATE: Check if sentences actually contain the user's word
+                    validated_sentences = self._validate_sentences_contain_word(word_data.get('example_sentences', []), word)
+                    
+                    if len(validated_sentences) < 2:  # Need at least 2 valid sentences
+                        self.update_signal.emit(f"Sentences for '{word}' don't contain the word, requesting new ones...")
+                        # Try one more time with a more specific prompt
+                        retry_word_data = self._retry_sentence_generation(client, word)
+                        if retry_word_data and len(self._validate_sentences_contain_word(retry_word_data.get('example_sentences', []), word)) >= 2:
+                            word_data = retry_word_data
+                            word_data['original_word'] = word
+                            self.update_signal.emit(f"Successfully generated valid sentences for '{word}' on retry")
+                        else:
+                            self.update_signal.emit(f"Warning: Could not generate valid sentences for '{word}', will skip or use partial data")
                     
                     # Merge with Ordnet data if available
                     if word in self.ordnet_data:

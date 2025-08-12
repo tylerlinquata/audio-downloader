@@ -21,7 +21,7 @@ class AppConfig:
     DEFAULT_CEFR_LEVEL = "B1"
     
     # API settings - Optimized for better performance and stability
-    OPENAI_MODEL = "gpt-4o-mini"
+    OPENAI_MODEL = "gpt-5-mini"
     OPENAI_MAX_TOKENS = 1500  # Conservative limit for stable processing
     OPENAI_TEMPERATURE = 0.7
     
