@@ -12,7 +12,14 @@ rm -rf build dist
 
 # Build the app
 echo "Running py2app..."
-python build-tools/setup.py py2app
+# Use the virtual environment's Python if available, otherwise fall back to python3
+if [ -f ".venv/bin/python" ]; then
+    echo "Using virtual environment Python..."
+    .venv/bin/python build-tools/setup.py py2app
+else
+    echo "Using system Python3..."
+    python3 build-tools/setup.py py2app
+fi
 
 if [ -d "dist/Danish Audio Downloader.app" ]; then
     echo "Application successfully built!"
