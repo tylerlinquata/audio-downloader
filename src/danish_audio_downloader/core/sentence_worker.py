@@ -72,7 +72,6 @@ class SentenceWorker(QThread):
                     # Minimal delay between chunks
                     if i + chunk_size < total_words:
                         time.sleep(0.1)  # Reduced delay
-                        time.sleep(0.1)  # Reduced delay
             
             if not self.abort_flag:
                 self.update_signal.emit(f"Sending results for {len(word_data_list)} words to main thread...")
@@ -181,34 +180,8 @@ Requirements:
                         if word_data.get('english_translation'):
                             word_translations[original_word] = word_data['english_translation'].lower().strip()
                         
-                        # Merge with Ordnet data if available
-                        if original_word in self.ordnet_data:
-                            ordnet_info = self.ordnet_data[original_word]
-                            # Use Ordnet data for definitions and grammar, but keep ChatGPT sentences
-                            if ordnet_info.get('danish_definition'):
-                                word_data['danish_definition'] = ordnet_info['danish_definition']
-                            if ordnet_info.get('pronunciation'):
-                                word_data['pronunciation'] = ordnet_info['pronunciation']
-                            if ordnet_info.get('word_type'):
-                                word_data['word_type'] = ordnet_info['word_type']
-                            if ordnet_info.get('gender'):
-                                word_data['gender'] = ordnet_info['gender']
-                            if ordnet_info.get('plural'):
-                                word_data['plural'] = ordnet_info['plural']
-                            if ordnet_info.get('inflections'):
-                                word_data['inflections'] = ordnet_info['inflections']
-                            # Use ChatGPT for English translation if Ordnet doesn't have it
-                            if not word_data.get('english_translation') and ordnet_info.get('english_translation'):
-                                word_data['english_translation'] = ordnet_info['english_translation']
-                        
-                        # Set default values for missing fields
-                        word_data.setdefault('pronunciation', '')
-                        word_data.setdefault('word_type', '')
-                        word_data.setdefault('gender', '')
-                        word_data.setdefault('plural', '')
-                        word_data.setdefault('inflections', '')
-                        word_data.setdefault('danish_definition', '')
-                        word_data.setdefault('english_translation', '')
+                        # Merge with Ordnet data and set defaults
+                        self._merge_ordnet_data_and_set_defaults(word_data, original_word)
                         
                         # Update image lookup with English translation
                         if word_data.get('english_translation'):
@@ -227,6 +200,8 @@ Requirements:
                         if retry_result and len(self._validate_sentences_contain_word(retry_result.get('example_sentences', []), original_word)) >= 2:
                             # Update the word_data with the new sentences
                             word_data['example_sentences'] = retry_result['example_sentences']
+                            if retry_result.get('english_translation'):
+                                word_data['english_translation'] = retry_result['english_translation']
                             word_data['needs_retry'] = False  # Mark as resolved
                             self.update_signal.emit(f"Successfully generated valid sentences for '{original_word}' on individual retry")
                         else:
@@ -243,16 +218,162 @@ Requirements:
                 return self._process_words_individually(client, words_batch)
                 
         except openai.RateLimitError as e:
-            self.update_signal.emit(f"Rate limit exceeded: {str(e)}. Falling back to individual processing...")
-            return self._process_words_individually(client, words_batch)
+            self.update_signal.emit(f"Rate limit exceeded: {str(e)}. Processing with retry fallback...")
+            # Simple retry with single word processing for rate limit issues
+            word_data_list, word_translations = [], {}
+            for word in words_batch:
+                try:
+                    time.sleep(1)  # Rate limit recovery delay
+                    single_data, single_translations = self._process_single_word(client, word)
+                    word_data_list.extend(single_data)
+                    word_translations.update(single_translations)
+                except Exception as single_error:
+                    self.update_signal.emit(f"Failed to process '{word}': {str(single_error)}")
+                    error_data = self._create_error_word_data(word, f'Could not generate sentences: {str(single_error)}')
+                    word_data_list.append(error_data)
+            return word_data_list, word_translations
         except openai.APIError as e:
-            self.update_signal.emit(f"OpenAI API error: {str(e)}. Falling back to individual processing...")
-            return self._process_words_individually(client, words_batch)
+            self.update_signal.emit(f"OpenAI API error: {str(e)}. Using error fallback...")
+            return self._create_error_fallback_for_batch(words_batch, f'OpenAI API error: {str(e)}')
         except Exception as e:
-            self.update_signal.emit(f"Batch processing error: {str(e)}, falling back to individual requests...")
-            return self._process_words_individually(client, words_batch)
+            self.update_signal.emit(f"Batch processing error: {str(e)}. Using error fallback...")
+            return self._create_error_fallback_for_batch(words_batch, f'Batch processing error: {str(e)}')
         
         return word_data_list, word_translations
+    
+    def _create_error_fallback_for_batch(self, words_batch: List[str], error_message: str):
+        """Create error fallback data for an entire batch of words."""
+        word_data_list = []
+        word_translations = {}
+        
+        for word in words_batch:
+            error_data = self._create_error_word_data(word, error_message)
+            word_data_list.append(error_data)
+            if error_data.get('english_translation'):
+                word_translations[word] = error_data['english_translation'].lower().strip()
+        
+        return word_data_list, word_translations
+    
+    def _process_single_word(self, client, word: str):
+        """Process a single word with simplified logic."""
+        word_data_list = []
+        word_translations = {}
+        
+        # Simplified prompt for single word
+        prompt = f"""For the Danish word "{word}", create exactly 2 example sentences and provide English translation.
+
+CRITICAL: Each sentence MUST contain the exact word "{word}" as written.
+
+Return ONLY this JSON:
+{{
+    "word": "{word}",
+    "english_translation": "dictionary form",
+    "example_sentences": [
+        {{"danish": "Sentence with {word}", "english": "English translation"}},
+        {{"danish": "Another sentence with {word}", "english": "English translation"}}
+    ]
+}}"""
+        
+        try:
+            response = client.chat.completions.create(
+                model=AppConfig.OPENAI_MODEL,
+                messages=[
+                    {"role": "system", "content": "Return ONLY valid JSON. Use exact word forms as provided."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=AppConfig.OPENAI_MAX_TOKENS,
+                temperature=0.3
+            )
+            
+            json_content = response.choices[0].message.content.strip()
+            word_data = self._parse_response(json_content)
+            
+            if word_data:
+                word_data['original_word'] = word
+                self._merge_ordnet_data_and_set_defaults(word_data, word)
+                word_data_list.append(word_data)
+                
+                if word_data.get('english_translation'):
+                    word_translations[word] = word_data['english_translation'].lower().strip()
+            else:
+                error_data = self._create_error_word_data(word, 'Could not parse response')
+                word_data_list.append(error_data)
+                
+        except Exception as e:
+            error_data = self._create_error_word_data(word, f'Error processing word: {str(e)}')
+            word_data_list.append(error_data)
+        
+        return word_data_list, word_translations
+    
+    def _merge_ordnet_data_and_set_defaults(self, word_data: Dict, original_word: str) -> None:
+        """Merge Ordnet data with word_data and set default values for missing fields."""
+        # Merge with Ordnet data if available
+        if original_word in self.ordnet_data:
+            ordnet_info = self.ordnet_data[original_word]
+            # Use Ordnet data for definitions and grammar, but keep ChatGPT sentences
+            if ordnet_info.get('danish_definition'):
+                word_data['danish_definition'] = ordnet_info['danish_definition']
+            if ordnet_info.get('pronunciation'):
+                word_data['pronunciation'] = ordnet_info['pronunciation']
+            if ordnet_info.get('word_type'):
+                word_data['word_type'] = ordnet_info['word_type']
+            if ordnet_info.get('gender'):
+                word_data['gender'] = ordnet_info['gender']
+            if ordnet_info.get('plural'):
+                word_data['plural'] = ordnet_info['plural']
+            if ordnet_info.get('inflections'):
+                word_data['inflections'] = ordnet_info['inflections']
+            # Use ChatGPT for English translation if Ordnet doesn't have it
+            if not word_data.get('english_translation') and ordnet_info.get('english_translation'):
+                word_data['english_translation'] = ordnet_info['english_translation']
+        
+        # Set default values for missing fields
+        word_data.setdefault('pronunciation', '')
+        word_data.setdefault('word_type', '')
+        word_data.setdefault('gender', '')
+        word_data.setdefault('plural', '')
+        word_data.setdefault('inflections', '')
+        word_data.setdefault('danish_definition', '')
+        word_data.setdefault('english_translation', '')
+    
+    def _create_error_word_data(self, word: str, error_message: str) -> Dict:
+        """Create error data structure for a word with Ordnet data if available."""
+        error_data = {
+            'word': word,
+            'original_word': word,
+            'error': error_message,
+            'pronunciation': '',
+            'word_type': '',
+            'gender': '',
+            'plural': '',
+            'inflections': '',
+            'danish_definition': '',
+            'english_translation': '',
+            'example_sentences': []
+        }
+        
+        # Add Ordnet data if available
+        if word in self.ordnet_data:
+            ordnet_info = self.ordnet_data[word]
+            if ordnet_info.get('danish_definition'):
+                error_data['danish_definition'] = ordnet_info['danish_definition']
+            if ordnet_info.get('pronunciation'):
+                error_data['pronunciation'] = ordnet_info['pronunciation']
+            if ordnet_info.get('word_type'):
+                error_data['word_type'] = ordnet_info['word_type']
+            if ordnet_info.get('gender'):
+                error_data['gender'] = ordnet_info['gender']
+            if ordnet_info.get('plural'):
+                error_data['plural'] = ordnet_info['plural']
+            if ordnet_info.get('inflections'):
+                error_data['inflections'] = ordnet_info['inflections']
+            if ordnet_info.get('english_translation'):
+                error_data['english_translation'] = ordnet_info['english_translation']
+            # Update error message if we have good Ordnet data
+            if ordnet_info.get('ordnet_found'):
+                error_data['error'] = f'{error_message}, but dictionary data available'
+        
+        return error_data
     
     def _validate_sentences_contain_word(self, sentences, target_word):
         """Validate that sentences actually contain the target word (exact match)."""
@@ -313,7 +434,7 @@ MANDATORY: The word "{word}" must appear exactly as written in each Danish sente
             return None
 
     def _parse_batch_response(self, json_content: str):
-        """Parse the JSON response from ChatGPT for batch processing with robust error handling."""
+        """Parse the JSON response from ChatGPT for batch processing with simplified error handling."""
         try:
             # Remove any markdown formatting if present
             content = json_content.strip()
@@ -323,328 +444,17 @@ MANDATORY: The word "{word}" must appear exactly as written in each Danish sente
                 content = content[:-3]
             content = content.strip()
             
-            # Try to fix common JSON issues
-            content = self._fix_common_json_issues(content)
+            # Simple fix for common escaped quote issues
+            content = content.replace('\\"', '"')
             
             return json.loads(content)
         except json.JSONDecodeError as e:
             self.update_signal.emit(f"Batch JSON parsing error: {str(e)}")
-            # Try to extract partial valid JSON
-            return self._attempt_partial_json_recovery(content)
+            return None
         except Exception as e:
             self.update_signal.emit(f"Error parsing batch response: {str(e)}")
             return None
     
-    def _fix_common_json_issues(self, content: str) -> str:
-        """Fix common JSON formatting issues that occur with large responses."""
-        import re
-        
-        # Fix the main issue: incorrectly escaped quotes in values
-        # Replace \" with " inside string values (but not at the start/end of strings)
-        content = re.sub(r'(?<=[a-zA-ZæøåÆØÅ\s])\\"(?=[a-zA-ZæøåÆØÅ\s])', '"', content)
-        
-        # Fix trailing commas before closing brackets/braces
-        content = re.sub(r',(\s*[}\]])', r'\1', content)
-        
-        # More specific fix for the Danish quote issue
-        # Find patterns like "danish": \"text with quotes\"
-        # and fix them to "danish": "text with quotes"
-        def fix_danish_quotes(match):
-            key = match.group(1)
-            value_content = match.group(2)
-            # Unescape the quotes in the value content
-            fixed_value = value_content.replace('\\"', '"')
-            return f'"{key}": "{fixed_value}"'
-        
-        # Pattern to match key-value pairs with escaped quotes in values
-        pattern = r'"(danish|english)"\s*:\s*\\"([^"]*(?:\\"[^"]*)*)\\"'
-        content = re.sub(pattern, fix_danish_quotes, content)
-        
-        return content
-    
-    def _attempt_partial_json_recovery(self, content: str):
-        """Attempt to recover partial valid JSON from malformed response."""
-        try:
-            # First, try the simpler fix for the escaped quotes issue
-            fixed_content = self._fix_escaped_quotes_issue(content)
-            if fixed_content:
-                try:
-                    return json.loads(fixed_content)
-                except:
-                    pass
-            
-            # If that fails, try the more complex recovery
-            import re
-            
-            # Look for the "words" array
-            words_match = re.search(r'"words"\s*:\s*\[(.*?)\]', content, re.DOTALL)
-            if not words_match:
-                self.update_signal.emit("Could not find 'words' array in response")
-                return None
-            
-            words_content = words_match.group(1)
-            
-            # Try to extract individual word objects
-            word_objects = []
-            brace_level = 0
-            current_object = ""
-            
-            for char in words_content:
-                current_object += char
-                if char == '{':
-                    brace_level += 1
-                elif char == '}':
-                    brace_level -= 1
-                    if brace_level == 0:
-                        # We have a complete object
-                        try:
-                            # Try to parse this individual object
-                            obj_json = current_object.strip().strip(',').strip()
-                            obj_json = '{' + obj_json + '}'
-                            obj_json = self._fix_common_json_issues(obj_json)
-                            word_obj = json.loads(obj_json)
-                            if word_obj.get('word'):  # Valid word object
-                                word_objects.append(word_obj)
-                        except Exception as e:
-                            self.update_signal.emit(f"Failed to parse object: {str(e)}")
-                        current_object = ""
-            
-            if word_objects:
-                self.update_signal.emit(f"Recovered {len(word_objects)} valid word objects from malformed JSON")
-                return {"words": word_objects}
-            else:
-                self.update_signal.emit("Could not recover any valid word objects")
-                return None
-                
-        except Exception as e:
-            self.update_signal.emit(f"JSON recovery failed: {str(e)}")
-            return None
-    
-    def _fix_escaped_quotes_issue(self, content: str) -> str:
-        """Specifically fix the escaped quotes issue we're seeing."""
-        try:
-            import re
-            
-            # The issue is that the AI is using \" instead of " in JSON values
-            # We need to fix this by replacing \" with " but only in the right places
-            
-            # Pattern to find string values that have incorrectly escaped quotes
-            # This matches "key": \"value with quotes\" and fixes it to "key": "value with quotes"
-            def fix_value_quotes(match):
-                key = match.group(1)
-                value = match.group(2)
-                # Remove the escaping from the quotes in the value
-                fixed_value = value.replace('\\"', '"')
-                return f'"{key}": "{fixed_value}"'
-            
-            # Fix the specific pattern we see in the error
-            pattern = r'"(\w+)"\s*:\s*\\"([^"]*(?:\\"[^"]*)*)\\"'
-            fixed_content = re.sub(pattern, fix_value_quotes, content)
-            
-            return fixed_content
-            
-        except Exception as e:
-            self.update_signal.emit(f"Failed to fix escaped quotes: {str(e)}")
-            return None
-
-    def _process_words_individually(self, client, words_batch):
-        """Fallback method: process words individually (original implementation)."""
-        word_data_list = []
-        word_translations = {}
-        
-        for i, word in enumerate(words_batch):
-            if self.abort_flag:
-                break
-                
-            self.update_signal.emit(f"Individual processing: {word} ({i+1}/{len(words_batch)})")
-            
-            # Create the prompt for structured JSON response (original individual logic)
-            prompt = f"""For the Danish word "{word}", please provide example sentences and English translation.
-
-CRITICAL: Each sentence MUST contain the EXACT word "{word}" as written - do not change its form or inflection.
-
-Return your response as valid JSON in this exact format:
-{{
-    "word": "{word}",
-    "english_translation": "dictionary form (infinitive for verbs, singular for nouns)",
-    "example_sentences": [
-        {{
-            "danish": "Danish sentence containing the exact word {word}",
-            "english": "English translation"
-        }},
-        {{
-            "danish": "Another Danish sentence containing the exact word {word}",
-            "english": "English translation"
-        }}
-    ]
-}}
-
-Requirements:
-- MANDATORY: Use the exact word "{word}" in each Danish sentence - do not change its spelling, inflection, or form
-- If "{word}" is inflected (like "rejser"), use that exact inflected form in the sentence
-- If "{word}" is a base form (like "rejse"), use that exact base form in the sentence
-- Make sentences appropriate for {self.cefr_level} level
-- Provide 2 different example sentences showing different contexts/uses
-- Focus on creating natural, contextual sentences that properly use the given word form
-- English translation MUST be the dictionary form (infinitive for verbs, singular for nouns)
-- For verbs, use the infinitive form WITHOUT "to" (e.g., "talk" not "talked/talking/talks", "eat" not "ate/eating/eats")
-- For nouns, use singular form (e.g., "cat" not "cats", "house" not "houses")
-- Return ONLY valid JSON, no additional text or formatting"""
-            
-            try:
-                # Make API call
-                response = client.chat.completions.create(
-                    model=AppConfig.OPENAI_MODEL,
-                    messages=[
-                        {"role": "system", "content": "You are a Danish language teacher specializing in creating natural example sentences. Always respond with valid JSON only, no additional text or formatting. Focus on creating clear, contextual sentences that demonstrate word usage. For English translations, always use the dictionary form: infinitive for verbs (e.g., 'talk' not 'talked'), singular for nouns (e.g., 'cat' not 'cats')."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    max_tokens=AppConfig.OPENAI_MAX_TOKENS,
-                    temperature=AppConfig.OPENAI_TEMPERATURE
-                )
-                
-                # Parse JSON response
-                json_content = response.choices[0].message.content.strip()
-                word_data = self._parse_response(json_content)
-                
-                if word_data:
-                    # Preserve the original user input word
-                    word_data['original_word'] = word
-                    
-                    # VALIDATE: Check if sentences actually contain the user's word
-                    validated_sentences = self._validate_sentences_contain_word(word_data.get('example_sentences', []), word)
-                    
-                    if len(validated_sentences) < 2:  # Need at least 2 valid sentences
-                        self.update_signal.emit(f"Sentences for '{word}' don't contain the word, requesting new ones...")
-                        # Try one more time with a more specific prompt
-                        retry_word_data = self._retry_sentence_generation(client, word)
-                        if retry_word_data and len(self._validate_sentences_contain_word(retry_word_data.get('example_sentences', []), word)) >= 2:
-                            word_data = retry_word_data
-                            word_data['original_word'] = word
-                            self.update_signal.emit(f"Successfully generated valid sentences for '{word}' on retry")
-                        else:
-                            self.update_signal.emit(f"Warning: Could not generate valid sentences for '{word}', will skip or use partial data")
-                    
-                    # Merge with Ordnet data if available
-                    if word in self.ordnet_data:
-                        ordnet_info = self.ordnet_data[word]
-                        # Use Ordnet data for definitions and grammar, but keep ChatGPT sentences
-                        if ordnet_info.get('danish_definition'):
-                            word_data['danish_definition'] = ordnet_info['danish_definition']
-                        if ordnet_info.get('pronunciation'):
-                            word_data['pronunciation'] = ordnet_info['pronunciation']
-                        if ordnet_info.get('word_type'):
-                            word_data['word_type'] = ordnet_info['word_type']
-                        if ordnet_info.get('gender'):
-                            word_data['gender'] = ordnet_info['gender']
-                        if ordnet_info.get('plural'):
-                            word_data['plural'] = ordnet_info['plural']
-                        if ordnet_info.get('inflections'):
-                            word_data['inflections'] = ordnet_info['inflections']
-                        # Use ChatGPT for English translation if Ordnet doesn't have it
-                        if not word_data.get('english_translation') and ordnet_info.get('english_translation'):
-                            word_data['english_translation'] = ordnet_info['english_translation']
-                    
-                    # Set default values for missing fields
-                    word_data.setdefault('pronunciation', '')
-                    word_data.setdefault('word_type', '')
-                    word_data.setdefault('gender', '')
-                    word_data.setdefault('plural', '')
-                    word_data.setdefault('inflections', '')
-                    word_data.setdefault('danish_definition', '')
-                    word_data.setdefault('english_translation', '')
-                    
-                    # Store the structured data directly
-                    word_data_list.append(word_data)
-                    
-                    # Store English translation for image fetching
-                    if word_data.get('english_translation'):
-                        word_translations[word] = word_data['english_translation'].lower().strip()
-                else:
-                    # Fallback with error data structure, but include Ordnet data if available
-                    error_data = {
-                        'word': word,
-                        'original_word': word,  # Preserve original word even in error cases
-                        'error': 'Could not parse response for this word',
-                        'pronunciation': '',
-                        'word_type': '',
-                        'gender': '',
-                        'plural': '',
-                        'inflections': '',
-                        'danish_definition': '',
-                        'english_translation': '',
-                        'example_sentences': []
-                    }
-                    
-                    # Add Ordnet data if available
-                    if word in self.ordnet_data:
-                        ordnet_info = self.ordnet_data[word]
-                        if ordnet_info.get('danish_definition'):
-                            error_data['danish_definition'] = ordnet_info['danish_definition']
-                        if ordnet_info.get('pronunciation'):
-                            error_data['pronunciation'] = ordnet_info['pronunciation']
-                        if ordnet_info.get('word_type'):
-                            error_data['word_type'] = ordnet_info['word_type']
-                        if ordnet_info.get('gender'):
-                            error_data['gender'] = ordnet_info['gender']
-                        if ordnet_info.get('plural'):
-                            error_data['plural'] = ordnet_info['plural']
-                        if ordnet_info.get('inflections'):
-                            error_data['inflections'] = ordnet_info['inflections']
-                        if ordnet_info.get('english_translation'):
-                            error_data['english_translation'] = ordnet_info['english_translation']
-                        # Clear the error if we have good Ordnet data
-                        if ordnet_info.get('ordnet_found'):
-                            error_data['error'] = 'Could not generate example sentences, but dictionary data available'
-                    
-                    word_data_list.append(error_data)
-                
-                # Add a small delay to respect rate limits
-                time.sleep(AppConfig.REQUEST_DELAY)
-                
-            except Exception as e:
-                error_msg = f"Error generating sentences for '{word}': {str(e)}"
-                self.update_signal.emit(error_msg)
-                # Add error data structure
-                error_data = {
-                    'word': word,
-                    'original_word': word,  # Preserve original word even in error cases
-                    'error': f'Could not generate sentences for this word: {str(e)}',
-                    'pronunciation': '',
-                    'word_type': '',
-                    'gender': '',
-                    'plural': '',
-                    'inflections': '',
-                    'danish_definition': '',
-                    'english_translation': '',
-                    'example_sentences': []
-                }
-                
-                # Add Ordnet data if available
-                if word in self.ordnet_data:
-                    ordnet_info = self.ordnet_data[word]
-                    if ordnet_info.get('danish_definition'):
-                        error_data['danish_definition'] = ordnet_info['danish_definition']
-                    if ordnet_info.get('pronunciation'):
-                        error_data['pronunciation'] = ordnet_info['pronunciation']
-                    if ordnet_info.get('word_type'):
-                        error_data['word_type'] = ordnet_info['word_type']
-                    if ordnet_info.get('gender'):
-                        error_data['gender'] = ordnet_info['gender']
-                    if ordnet_info.get('plural'):
-                        error_data['plural'] = ordnet_info['plural']
-                    if ordnet_info.get('inflections'):
-                        error_data['inflections'] = ordnet_info['inflections']
-                    if ordnet_info.get('english_translation'):
-                        error_data['english_translation'] = ordnet_info['english_translation']
-                    # Update error message if we have good Ordnet data
-                    if ordnet_info.get('ordnet_found'):
-                        error_data['error'] = f'Could not generate example sentences: {str(e)}, but dictionary data available'
-                
-                word_data_list.append(error_data)
-        
-        return word_data_list, word_translations
-
     def _parse_response(self, json_content: str) -> Optional[Dict]:
         """Parse the JSON response from ChatGPT."""
         try:
