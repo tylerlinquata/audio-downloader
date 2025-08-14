@@ -137,7 +137,7 @@ Requirements:
                     {"role": "system", "content": "You are a Danish language teacher specializing in creating natural example sentences. Return ONLY valid JSON. NEVER use backslash-quote (\\\" ) in JSON values. Use normal quotes in Danish text. Focus on creating clear, contextual sentences that demonstrate word usage. For English translations, always use the dictionary form: infinitive for verbs (e.g., 'talk' not 'talked'), singular for nouns (e.g., 'cat' not 'cats')."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=token_limit,
+                max_completion_tokens=token_limit,
                 temperature=AppConfig.OPENAI_TEMPERATURE
             )
             
@@ -281,7 +281,7 @@ Return ONLY this JSON:
                     {"role": "system", "content": "Return ONLY valid JSON. Use exact word forms as provided."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=AppConfig.OPENAI_MAX_TOKENS,
+                max_completion_tokens=AppConfig.OPENAI_MAX_TOKENS,
                 temperature=0.3
             )
             
@@ -422,7 +422,7 @@ MANDATORY: The word "{word}" must appear exactly as written in each Danish sente
                     {"role": "system", "content": "You are a Danish language teacher. You MUST use the exact word provided. Return ONLY valid JSON."},
                     {"role": "user", "content": retry_prompt}
                 ],
-                max_tokens=AppConfig.OPENAI_MAX_TOKENS,
+                max_completion_tokens=AppConfig.OPENAI_MAX_TOKENS,
                 temperature=0.3  # Lower temperature for more precise adherence to instructions
             )
             
