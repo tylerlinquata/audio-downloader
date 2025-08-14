@@ -23,6 +23,25 @@ fi
 
 if [ -d "dist/Danish Audio Downloader.app" ]; then
     echo "Application successfully built!"
+    
+    # Code sign the application
+    echo "Code signing the application..."
+    
+    # Try to sign with ad-hoc signature (works for local use)
+    if codesign --force --deep --sign - "dist/Danish Audio Downloader.app" 2>/dev/null; then
+        echo "✅ Application signed with ad-hoc signature"
+        echo "Note: This app will only run on this machine and machines with Developer Mode enabled."
+    else
+        echo "⚠️  Warning: Could not sign the application"
+        echo "The app may not run due to macOS security restrictions."
+        echo ""
+        echo "To fix this, you can:"
+        echo "1. Right-click the app → Open → Open (when prompted)"
+        echo "2. Or run: xattr -dr com.apple.quarantine 'dist/Danish Audio Downloader.app'"
+        echo "3. Or enable Developer Mode in System Settings → Privacy & Security"
+    fi
+    
+    echo ""
     echo "The application is located in: dist/Danish Audio Downloader.app"
     echo "You can copy it to your Applications folder to install it."
 else

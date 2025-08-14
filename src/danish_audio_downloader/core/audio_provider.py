@@ -90,6 +90,16 @@ class ForvoAudioProvider:
                         # Store dictionary data for later use
                         self.word_dictionary_data[word] = result['dictionary_data']
                     else:
+                        # Check if Forvo says there are no pronunciations - don't retry in this case
+                        error_msg = result.get('error', '') or ''
+                        if 'No pronunciations found' in error_msg:
+                            failed.append(word)
+                            self.log(f"❌ No pronunciations available for '{word}' on Forvo - skipping retries")
+                            # Store dictionary data even for failed downloads (might have definition)
+                            if result.get('dictionary_data'):
+                                self.word_dictionary_data[word] = result['dictionary_data']
+                            break  # Exit retry loop immediately
+                        
                         retries += 1
                         if retries >= max_retries:
                             failed.append(word)
@@ -121,7 +131,8 @@ class ForvoAudioProvider:
         """
         result = {
             'success': False,
-            'dictionary_data': None
+            'dictionary_data': None,
+            'error': None
         }
         
         # First, get dictionary data from Ordnet (we still want this)
@@ -147,6 +158,7 @@ class ForvoAudioProvider:
         
         if not forvo_result['success']:
             self.log(f"❌ Forvo download failed: {forvo_result['error']}")
+            result['error'] = forvo_result['error']  # Propagate the error message
             return result
         
         # Validate the audio file
@@ -155,6 +167,7 @@ class ForvoAudioProvider:
             self.log(f"Downloaded file for '{word}' is not valid")
             if os.path.exists(audio_file_path):
                 os.remove(audio_file_path)
+            result['error'] = "Downloaded file is not valid"
             return result
         
         self.log(f"Audio file saved to {audio_file_path}")

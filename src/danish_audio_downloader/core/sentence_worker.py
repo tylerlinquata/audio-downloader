@@ -140,11 +140,27 @@ Requirements:
                 max_completion_tokens=token_limit
             )
             
-            # Parse JSON response
-            json_content = response.choices[0].message.content.strip()
+            self.update_signal.emit(f"API call successful. Processing {len(words_batch)} words...")
             
-            # Log the raw response for debugging (first 500 chars)
-            self.update_signal.emit(f"Raw API response preview: {json_content[:500]}...")
+            # Check if response is valid
+            if not response or not response.choices or not response.choices[0].message:
+                self.update_signal.emit("Error: Invalid response structure from OpenAI API")
+                return self._create_error_fallback_for_batch(words_batch, "Invalid response structure from OpenAI API")
+            
+            # Parse JSON response
+            json_content = response.choices[0].message.content
+            
+            # Check if content exists and is not None
+            if json_content is None:
+                self.update_signal.emit("Error: Received None content from OpenAI API")
+                return self._create_error_fallback_for_batch(words_batch, "None content from OpenAI API")
+            
+            json_content = json_content.strip()
+            
+            # Check for empty response
+            if not json_content:
+                self.update_signal.emit("Error: Received empty response from OpenAI API")
+                return self._create_error_fallback_for_batch(words_batch, "Empty response from OpenAI API")
             
             batch_data = self._parse_batch_response(json_content)
             
@@ -165,7 +181,7 @@ Requirements:
                         validated_sentences = self._validate_sentences_contain_word(word_data.get('example_sentences', []), original_word)
                         
                         if len(validated_sentences) < 2:  # Need at least 2 valid sentences
-                            self.update_signal.emit(f"Batch result for '{original_word}' doesn't contain the word, will retry individually...")
+                            self.update_signal.emit(f"Word '{original_word}' needs individual retry - insufficient valid sentences")
                             # For batch processing, we'll mark this word for individual retry later
                             word_data['needs_retry'] = True
                         else:
@@ -191,10 +207,9 @@ Requirements:
                 # Check for words that need individual retry due to validation failures
                 retry_words = [word_data for word_data in word_data_list if word_data.get('needs_retry')]
                 if retry_words:
-                    self.update_signal.emit(f"Retrying {len(retry_words)} words individually due to validation failures...")
+                    self.update_signal.emit(f"Retrying {len(retry_words)} words individually...")
                     for word_data in retry_words:
                         original_word = word_data['original_word']
-                        self.update_signal.emit(f"Retrying individual sentence generation for '{original_word}'...")
                         retry_result = self._retry_sentence_generation(client, original_word)
                         if retry_result and len(self._validate_sentences_contain_word(retry_result.get('example_sentences', []), original_word)) >= 2:
                             # Update the word_data with the new sentences
@@ -202,9 +217,8 @@ Requirements:
                             if retry_result.get('english_translation'):
                                 word_data['english_translation'] = retry_result['english_translation']
                             word_data['needs_retry'] = False  # Mark as resolved
-                            self.update_signal.emit(f"Successfully generated valid sentences for '{original_word}' on individual retry")
                         else:
-                            self.update_signal.emit(f"Warning: Could not generate valid sentences for '{original_word}' even on individual retry")
+                            self.update_signal.emit(f"Warning: Could not generate valid sentences for '{original_word}'")
                 
                 # If we got fewer words than expected, warn but continue
                 if processed_count < len(words_batch):
@@ -221,7 +235,6 @@ Requirements:
                         single_data, single_translations = self._process_single_word(client, word)
                         word_data_list.extend(single_data)
                         word_translations.update(single_translations)
-                        self.update_signal.emit(f"Individual processing successful for '{word}'")
                     except Exception as single_error:
                         self.update_signal.emit(f"Individual processing failed for '{word}': {str(single_error)}")
                         error_data = self._create_error_word_data(word, f'Individual processing failed: {str(single_error)}')
@@ -250,6 +263,12 @@ Requirements:
                     error_data = self._create_error_word_data(word, f'Could not generate sentences: {str(single_error)}')
                     word_data_list.append(error_data)
             return word_data_list, word_translations
+        except openai.AuthenticationError as e:
+            self.update_signal.emit(f"OpenAI Authentication error: {str(e)}. Check your API key...")
+            return self._create_error_fallback_for_batch(words_batch, f'Authentication error: {str(e)}')
+        except openai.NotFoundError as e:
+            self.update_signal.emit(f"OpenAI Model not found: {str(e)}. Model '{AppConfig.OPENAI_MODEL}' may not exist...")
+            return self._create_error_fallback_for_batch(words_batch, f'Model not found: {str(e)}')
         except openai.APIError as e:
             self.update_signal.emit(f"OpenAI API error: {str(e)}. Using error fallback...")
             return self._create_error_fallback_for_batch(words_batch, f'OpenAI API error: {str(e)}')
@@ -405,6 +424,11 @@ Return ONLY this JSON:
                 if re.search(pattern, danish_sentence):
                     valid_sentences.append(sentence_data)
         
+        # Only log if there are validation issues
+        if len(valid_sentences) < len(sentences):
+            invalid_count = len(sentences) - len(valid_sentences)
+            self.update_signal.emit(f"Validation: {invalid_count}/{len(sentences)} sentences for '{target_word}' don't contain the word")
+        
         return valid_sentences
     
     def _retry_sentence_generation(self, client, word):
@@ -452,6 +476,11 @@ MANDATORY: The word "{word}" must appear exactly as written in each Danish sente
     def _parse_batch_response(self, json_content: str):
         """Parse the JSON response from ChatGPT for batch processing with simplified error handling."""
         try:
+            # Check for empty content first
+            if not json_content or json_content.isspace():
+                self.update_signal.emit("Error: Empty or whitespace-only response content")
+                return None
+            
             # Remove any markdown formatting if present
             content = json_content.strip()
             if content.startswith('```json'):
@@ -460,37 +489,38 @@ MANDATORY: The word "{word}" must appear exactly as written in each Danish sente
                 content = content[:-3]
             content = content.strip()
             
+            # Check again after cleaning
+            if not content:
+                self.update_signal.emit("Error: Content became empty after cleaning markdown")
+                return None
+            
             # Simple fix for common escaped quote issues
             content = content.replace('\\"', '"')
-            
-            # Log the cleaned content for debugging
-            self.update_signal.emit(f"Attempting to parse cleaned JSON (first 200 chars): {content[:200]}...")
             
             parsed_data = json.loads(content)
             
             # Validate the structure
             if not isinstance(parsed_data, dict):
-                self.update_signal.emit(f"Invalid JSON structure: expected dict, got {type(parsed_data)}")
+                self.update_signal.emit(f"Error: Invalid JSON structure - expected dict, got {type(parsed_data)}")
                 return None
             
             if 'words' not in parsed_data:
-                self.update_signal.emit(f"Missing 'words' key in response. Keys found: {list(parsed_data.keys())}")
+                self.update_signal.emit(f"Error: Missing 'words' key in response. Keys found: {list(parsed_data.keys())}")
                 return None
             
             if not isinstance(parsed_data['words'], list):
-                self.update_signal.emit(f"Invalid 'words' structure: expected list, got {type(parsed_data['words'])}")
+                self.update_signal.emit(f"Error: Invalid 'words' structure - expected list, got {type(parsed_data['words'])}")
                 return None
             
-            self.update_signal.emit(f"Successfully parsed JSON with {len(parsed_data['words'])} word entries")
             return parsed_data
             
         except json.JSONDecodeError as e:
             self.update_signal.emit(f"JSON parsing error at position {e.pos}: {str(e)}")
-            self.update_signal.emit(f"Content around error: ...{json_content[max(0, e.pos-50):e.pos+50]}...")
+            if hasattr(e, 'pos') and e.pos < len(json_content):
+                self.update_signal.emit(f"Content around error: ...{json_content[max(0, e.pos-50):e.pos+50]}...")
             return None
         except Exception as e:
             self.update_signal.emit(f"Error parsing batch response: {str(e)}")
-            self.update_signal.emit(f"Raw content length: {len(json_content)} characters")
             return None
     
     def _parse_response(self, json_content: str) -> Optional[Dict]:

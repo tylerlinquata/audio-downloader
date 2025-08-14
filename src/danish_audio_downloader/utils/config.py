@@ -21,13 +21,13 @@ class AppConfig:
     DEFAULT_CEFR_LEVEL = "B1"
     
     # API settings - Optimized for better performance and stability
-    OPENAI_MODEL = "gpt-5-mini"
-    OPENAI_MAX_TOKENS = 1500  # Conservative limit for stable processing
+    OPENAI_MODEL = "gpt-4o-mini"  # Using reliable OpenAI model
+    OPENAI_MAX_TOKENS = 1500  # Increased back for larger batches
     OPENAI_TEMPERATURE = 0.7
     
-    # Batch processing settings - Very conservative for JSON stability
-    BATCH_SIZE = 5   # Very small batches to ensure JSON stability
-    BATCH_THRESHOLD = 15  # Use batching for lists smaller than this
+    # Batch processing settings - Increased for better performance
+    BATCH_SIZE = 8   # Increased batch size for better efficiency
+    BATCH_THRESHOLD = 20  # Use batching for lists smaller than this
     
     # Download settings - Optimized for concurrent processing
     MAX_RETRIES = 3
