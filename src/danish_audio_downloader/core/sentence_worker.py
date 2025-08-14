@@ -212,9 +212,28 @@ Requirements:
                     self.update_signal.emit(f"Warning: {missing_count} words may not have been processed correctly")
                     
             else:
-                # Fallback to individual processing if batch fails
-                self.update_signal.emit("Batch processing failed, falling back to individual requests...")
-                return self._process_words_individually(client, words_batch)
+                # Fallback: if batch parsing fails, try processing words individually
+                self.update_signal.emit("Batch processing failed, attempting individual word processing...")
+                word_data_list, word_translations = [], {}
+                
+                for word in words_batch:
+                    try:
+                        single_data, single_translations = self._process_single_word(client, word)
+                        word_data_list.extend(single_data)
+                        word_translations.update(single_translations)
+                        self.update_signal.emit(f"Individual processing successful for '{word}'")
+                    except Exception as single_error:
+                        self.update_signal.emit(f"Individual processing failed for '{word}': {str(single_error)}")
+                        error_data = self._create_error_word_data(word, f'Individual processing failed: {str(single_error)}')
+                        word_data_list.append(error_data)
+                
+                if word_data_list:
+                    self.update_signal.emit(f"Individual fallback completed: {len(word_data_list)} words processed")
+                    return word_data_list, word_translations
+                else:
+                    # Final fallback: create error entries
+                    self.update_signal.emit("All processing methods failed, creating error entries...")
+                    return self._create_error_fallback_for_batch(words_batch, "All processing methods failed - could not parse response")
                 
         except openai.RateLimitError as e:
             self.update_signal.emit(f"Rate limit exceeded: {str(e)}. Processing with retry fallback...")
@@ -444,12 +463,34 @@ MANDATORY: The word "{word}" must appear exactly as written in each Danish sente
             # Simple fix for common escaped quote issues
             content = content.replace('\\"', '"')
             
-            return json.loads(content)
+            # Log the cleaned content for debugging
+            self.update_signal.emit(f"Attempting to parse cleaned JSON (first 200 chars): {content[:200]}...")
+            
+            parsed_data = json.loads(content)
+            
+            # Validate the structure
+            if not isinstance(parsed_data, dict):
+                self.update_signal.emit(f"Invalid JSON structure: expected dict, got {type(parsed_data)}")
+                return None
+            
+            if 'words' not in parsed_data:
+                self.update_signal.emit(f"Missing 'words' key in response. Keys found: {list(parsed_data.keys())}")
+                return None
+            
+            if not isinstance(parsed_data['words'], list):
+                self.update_signal.emit(f"Invalid 'words' structure: expected list, got {type(parsed_data['words'])}")
+                return None
+            
+            self.update_signal.emit(f"Successfully parsed JSON with {len(parsed_data['words'])} word entries")
+            return parsed_data
+            
         except json.JSONDecodeError as e:
-            self.update_signal.emit(f"Batch JSON parsing error: {str(e)}")
+            self.update_signal.emit(f"JSON parsing error at position {e.pos}: {str(e)}")
+            self.update_signal.emit(f"Content around error: ...{json_content[max(0, e.pos-50):e.pos+50]}...")
             return None
         except Exception as e:
             self.update_signal.emit(f"Error parsing batch response: {str(e)}")
+            self.update_signal.emit(f"Raw content length: {len(json_content)} characters")
             return None
     
     def _parse_response(self, json_content: str) -> Optional[Dict]:
