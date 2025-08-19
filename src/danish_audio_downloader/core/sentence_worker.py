@@ -90,14 +90,14 @@ class SentenceWorker(QThread):
         
         prompt = f"""For the Danish words [{words_json}], provide example sentences and English translations.
 
-CRITICAL: Each sentence MUST contain the EXACT word as written - do not change its form or inflection.
+CRITICAL: You MUST return the EXACT words as provided - do not change, substitute, or modify them in any way.
 
 Use this EXACT format:
 {{
     "words": [
         {{
             "word": "word1",
-            "english_translation": "dictionary form (infinitive for verbs, singular for nouns)",
+            "english_translation": "baseword",
             "example_sentences": [
                 {{
                     "danish": "Danish sentence containing the exact word word1",
@@ -113,15 +113,17 @@ Use this EXACT format:
 }}
 
 Requirements:
+- MANDATORY: Return each word EXACTLY as provided in the word list - no changes whatsoever
 - MANDATORY: Use each exact word as provided in the Danish sentences - do not change spelling, inflection, or form
 - If a word is inflected (like "rejser"), use that exact inflected form in the sentence
 - If a word is a base form (like "rejse"), use that exact base form in the sentence  
 - CEFR level: {self.cefr_level}
 - 2 example sentences per word
 - Focus on creating natural example sentences that properly use the given word forms
-- English translation MUST be the dictionary form (infinitive for verbs, singular for nouns)
-- For verbs, use the infinitive form WITHOUT "to" (e.g., "talk" not "talked/talking/talks", "eat" not "ate/eating/eats")
-- For nouns, use singular form (e.g., "cat" not "cats", "house" not "houses")
+- English translation MUST be the dictionary base form (single word only)
+- For verbs, use the infinitive WITHOUT "to" (e.g., "talk" not "to talk", "eat" not "to eat")
+- For nouns, use singular form WITHOUT articles (e.g., "cat" not "the cat", "house" not "the house")
+- NEVER include articles (the, a, an) or prepositions (to, of, in, etc.)
 - DO NOT escape quotes in Danish text
 - Return ONLY the JSON object"""
         
@@ -134,7 +136,7 @@ Requirements:
             response = client.chat.completions.create(
                 model=AppConfig.OPENAI_MODEL,
                 messages=[
-                    {"role": "system", "content": "You are a Danish language teacher specializing in creating natural example sentences. Return ONLY valid JSON. NEVER use backslash-quote (\\\" ) in JSON values. Use normal quotes in Danish text. Focus on creating clear, contextual sentences that demonstrate word usage. For English translations, always use the dictionary form: infinitive for verbs (e.g., 'talk' not 'talked'), singular for nouns (e.g., 'cat' not 'cats')."},
+                    {"role": "system", "content": "You are a Danish language teacher specializing in creating natural example sentences. Return ONLY valid JSON. NEVER use backslash-quote (\\\" ) in JSON values. Use normal quotes in Danish text. Focus on creating clear, contextual sentences that demonstrate word usage. For English translations, always use the BASE WORD ONLY: infinitive for verbs WITHOUT 'to' (e.g., 'talk' not 'to talk'), singular for nouns WITHOUT articles (e.g., 'cat' not 'the cat')."},
                     {"role": "user", "content": prompt}
                 ],
                 max_completion_tokens=token_limit
@@ -176,17 +178,29 @@ Requirements:
                             word_data['original_word'] = word_data.get('word', '')
                         
                         original_word = word_data['original_word']
+                        returned_word = word_data.get('word', '').lower().strip()
                         
-                        # VALIDATE: Check if sentences actually contain the user's word
-                        validated_sentences = self._validate_sentences_contain_word(word_data.get('example_sentences', []), original_word)
+                        # Clean the English translation immediately after parsing
+                        if word_data.get('english_translation'):
+                            word_data['english_translation'] = self._clean_english_translation(word_data['english_translation'])
                         
-                        if len(validated_sentences) < 2:  # Need at least 2 valid sentences
-                            self.update_signal.emit(f"Word '{original_word}' needs individual retry - insufficient valid sentences")
-                            # For batch processing, we'll mark this word for individual retry later
+                        # VALIDATE: Check if AI returned the correct word
+                        if returned_word != original_word.lower().strip():
+                            self.update_signal.emit(f"AI returned '{returned_word}' instead of requested '{original_word}' - marking for retry")
                             word_data['needs_retry'] = True
+                            word_data['retry_reason'] = 'wrong_word_returned'
                         else:
-                            # Update with only the validated sentences
-                            word_data['example_sentences'] = validated_sentences
+                            # VALIDATE: Check if sentences actually contain the user's word
+                            validated_sentences = self._validate_sentences_contain_word(word_data.get('example_sentences', []), original_word)
+                            
+                            if len(validated_sentences) < 2:  # Need at least 2 valid sentences
+                                self.update_signal.emit(f"Word '{original_word}' needs individual retry - insufficient valid sentences")
+                                # For batch processing, we'll mark this word for individual retry later
+                                word_data['needs_retry'] = True
+                                word_data['retry_reason'] = 'insufficient_sentences'
+                            else:
+                                # Update with only the validated sentences
+                                word_data['example_sentences'] = validated_sentences
                         
                         word_data_list.append(word_data)
                         processed_count += 1
@@ -210,15 +224,69 @@ Requirements:
                     self.update_signal.emit(f"Retrying {len(retry_words)} words individually...")
                     for word_data in retry_words:
                         original_word = word_data['original_word']
-                        retry_result = self._retry_sentence_generation(client, original_word)
+                        retry_reason = word_data.get('retry_reason', 'unknown')
+                        
+                        # Use different retry strategies based on the reason
+                        if retry_reason == 'wrong_word_returned':
+                            retry_result = self._retry_with_word_emphasis(client, original_word)
+                        else:
+                            retry_result = self._retry_sentence_generation(client, original_word)
+                        
                         if retry_result and len(self._validate_sentences_contain_word(retry_result.get('example_sentences', []), original_word)) >= 2:
                             # Update the word_data with the new sentences
                             word_data['example_sentences'] = retry_result['example_sentences']
                             if retry_result.get('english_translation'):
                                 word_data['english_translation'] = retry_result['english_translation']
+                            # Fix the word field to match the original request
+                            word_data['word'] = original_word
                             word_data['needs_retry'] = False  # Mark as resolved
+                            del word_data['retry_reason']  # Clean up
                         else:
-                            self.update_signal.emit(f"Warning: Could not generate valid sentences for '{original_word}'")
+                            # Try to find if an inflected form works
+                            self.update_signal.emit(f"Checking if inflected form of '{original_word}' can be used...")
+                            inflected_form = self._find_inflected_form_in_sentences(retry_result.get('example_sentences', []) if retry_result else [], original_word)
+                            
+                            if inflected_form:
+                                self.update_signal.emit(f"Found inflected form '{inflected_form}' for '{original_word}' - using this form consistently")
+                                # Update the word to use the inflected form consistently
+                                word_data['word'] = inflected_form
+                                word_data['original_word'] = inflected_form  # Use inflected form for audio download
+                                if retry_result:
+                                    word_data['example_sentences'] = retry_result['example_sentences']
+                                    if retry_result.get('english_translation'):
+                                        word_data['english_translation'] = retry_result['english_translation']
+                                word_data['needs_retry'] = False
+                                word_data['inflected_form_used'] = True  # Flag to indicate we're using an inflected form
+                                del word_data['retry_reason']
+                                
+                                # Update the translation key to use the inflected form
+                                if word_data.get('english_translation'):
+                                    word_translations[inflected_form] = word_data['english_translation'].lower().strip()
+                            else:
+                                # Try systematically with different inflected forms
+                                self.update_signal.emit(f"Attempting systematic inflected form retry for '{original_word}'...")
+                                inflected_retry_result = self._retry_with_inflected_forms(client, original_word)
+                                
+                                if inflected_retry_result:
+                                    self.update_signal.emit(f"Success with inflected form retry for '{original_word}'")
+                                    inflected_word = inflected_retry_result['word']
+                                    word_data['word'] = inflected_word
+                                    word_data['original_word'] = inflected_word  # Use inflected form for audio download
+                                    word_data['example_sentences'] = inflected_retry_result['example_sentences']
+                                    if inflected_retry_result.get('english_translation'):
+                                        # Clean up the English translation
+                                        english_translation = inflected_retry_result['english_translation']
+                                        word_data['english_translation'] = self._clean_english_translation(english_translation)
+                                    word_data['needs_retry'] = False
+                                    word_data['inflected_form_used'] = True
+                                    word_data['base_word'] = original_word  # Keep track of the original word
+                                    del word_data['retry_reason']
+                                    
+                                    # Update the translation key to use the inflected form
+                                    if word_data.get('english_translation'):
+                                        word_translations[inflected_word] = word_data['english_translation'].lower().strip()
+                                else:
+                                    self.update_signal.emit(f"Warning: Could not generate valid sentences for '{original_word}' or any inflected form")
                 
                 # If we got fewer words than expected, warn but continue
                 if processed_count < len(words_batch):
@@ -304,7 +372,7 @@ CRITICAL: Each sentence MUST contain the exact word "{word}" as written.
 Return ONLY this JSON:
 {{
     "word": "{word}",
-    "english_translation": "dictionary form",
+    "english_translation": "baseword",
     "example_sentences": [
         {{"danish": "Sentence with {word}", "english": "English translation"}},
         {{"danish": "Another sentence with {word}", "english": "English translation"}}
@@ -315,7 +383,7 @@ Return ONLY this JSON:
             response = client.chat.completions.create(
                 model=AppConfig.OPENAI_MODEL,
                 messages=[
-                    {"role": "system", "content": "Return ONLY valid JSON. Use exact word forms as provided."},
+                    {"role": "system", "content": "Return ONLY valid JSON. Use exact word forms as provided. English translation must be a single base word without articles or prepositions."},
                     {"role": "user", "content": prompt}
                 ],
                 max_completion_tokens=AppConfig.OPENAI_MAX_TOKENS
@@ -325,12 +393,50 @@ Return ONLY this JSON:
             word_data = self._parse_response(json_content)
             
             if word_data:
-                word_data['original_word'] = word
-                self._merge_ordnet_data_and_set_defaults(word_data, word)
-                word_data_list.append(word_data)
-                
+                # Clean the English translation immediately after parsing
                 if word_data.get('english_translation'):
-                    word_translations[word] = word_data['english_translation'].lower().strip()
+                    word_data['english_translation'] = self._clean_english_translation(word_data['english_translation'])
+                
+                # VALIDATE: Check if AI returned the correct word
+                returned_word = word_data.get('word', '').lower().strip()
+                if returned_word != word.lower().strip():
+                    self.update_signal.emit(f"Single word processing: AI returned '{returned_word}' instead of '{word}' - retrying with emphasis")
+                    # Try the word emphasis retry method
+                    word_data = self._retry_with_word_emphasis(client, word)
+                
+                if word_data:
+                    # VALIDATE: Check if sentences contain the exact word
+                    validated_sentences = self._validate_sentences_contain_word(word_data.get('example_sentences', []), word)
+                    if len(validated_sentences) < 2:
+                        # Try to find if an inflected form works
+                        self.update_signal.emit(f"Single word processing: checking inflected forms for '{word}'...")
+                        inflected_form = self._find_inflected_form_in_sentences(word_data.get('example_sentences', []), word)
+                        
+                        if inflected_form:
+                            self.update_signal.emit(f"Single word processing: found inflected form '{inflected_form}' for '{word}' - using consistently")
+                            word_data['word'] = inflected_form
+                            word_data['original_word'] = inflected_form  # Use inflected form for audio download
+                            word_data['inflected_form_used'] = True
+                            self._merge_ordnet_data_and_set_defaults(word_data, inflected_form)
+                            word_data_list.append(word_data)
+                            
+                            if word_data.get('english_translation'):
+                                word_translations[inflected_form] = word_data['english_translation'].lower().strip()
+                        else:
+                            self.update_signal.emit(f"Single word processing: insufficient valid sentences for '{word}'")
+                            error_data = self._create_error_word_data(word, 'Could not generate valid sentences containing the exact word or inflected forms')
+                            word_data_list.append(error_data)
+                    else:
+                        word_data['example_sentences'] = validated_sentences
+                        word_data['original_word'] = word
+                        self._merge_ordnet_data_and_set_defaults(word_data, word)
+                        word_data_list.append(word_data)
+                        
+                        if word_data.get('english_translation'):
+                            word_translations[word] = word_data['english_translation'].lower().strip()
+                else:
+                    error_data = self._create_error_word_data(word, 'Could not get correct word after retry')
+                    word_data_list.append(error_data)
             else:
                 error_data = self._create_error_word_data(word, 'Could not parse response')
                 word_data_list.append(error_data)
@@ -340,6 +446,26 @@ Return ONLY this JSON:
             word_data_list.append(error_data)
         
         return word_data_list, word_translations
+    
+    def _clean_english_translation(self, translation: str) -> str:
+        """Clean English translation to ensure single base word form."""
+        if not translation:
+            return ""
+        
+        # Remove "(base word: ...)" pattern if present
+        cleaned = re.sub(r'\s*\(base word:.*?\).*', '', translation, flags=re.IGNORECASE)
+        # Remove "dictionary form" if present  
+        cleaned = re.sub(r'\s*dictionary form\s*', '', cleaned, flags=re.IGNORECASE)
+        # Remove articles and prepositions at the beginning
+        cleaned = re.sub(r'^(the|a|an|to)\s+', '', cleaned, flags=re.IGNORECASE)
+        # Remove common prepositions that might appear
+        cleaned = re.sub(r'^(in|on|at|by|for|with|of)\s+', '', cleaned, flags=re.IGNORECASE)
+        # Remove any trailing punctuation
+        cleaned = re.sub(r'[.,!?;:]+$', '', cleaned)
+        # Clean up multiple spaces and trim
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        
+        return cleaned
     
     def _merge_ordnet_data_and_set_defaults(self, word_data: Dict, original_word: str) -> None:
         """Merge Ordnet data with word_data and set default values for missing fields."""
@@ -412,7 +538,7 @@ Return ONLY this JSON:
         return error_data
     
     def _validate_sentences_contain_word(self, sentences, target_word):
-        """Validate that sentences actually contain the target word (exact match)."""
+        """Validate that sentences actually contain the target word (exact match or inflected form)."""
         valid_sentences = []
         target_word_lower = target_word.lower()
         
@@ -431,6 +557,203 @@ Return ONLY this JSON:
         
         return valid_sentences
     
+    def _find_inflected_form_in_sentences(self, sentences, base_word):
+        """Find what inflected form of the word is actually used in the sentences."""
+        base_word_lower = base_word.lower()
+        
+        # First, check if the base word itself appears in the sentences
+        for sentence_data in sentences:
+            if isinstance(sentence_data, dict) and sentence_data.get('danish'):
+                danish_sentence = sentence_data['danish'].lower()
+                # Check for exact base word match with word boundaries
+                base_pattern = r'\b' + re.escape(base_word_lower) + r'\b'
+                if re.search(base_pattern, danish_sentence):
+                    # Base word found, no need to look for inflected forms
+                    return None
+        
+        # Only look for inflected forms if base word is NOT found
+        # Common Danish inflections to try
+        danish_inflections = [
+            base_word_lower + 'en',    # definite form (-en)
+            base_word_lower + 'et',    # definite form (-et) 
+            base_word_lower + 'erne',  # definite plural (-erne)
+            base_word_lower + 'ne',    # definite plural (-ne)
+            base_word_lower + 'er',    # plural/present tense (-er)
+            base_word_lower + 'ed',    # past tense (-ed)
+            base_word_lower + 'ede',   # past tense definite (-ede)
+            base_word_lower + 't',     # past participle (-t)
+            base_word_lower + 'te',    # past participle definite (-te)
+            base_word_lower + 's',     # genitive (-s)
+        ]
+        
+        # Special handling for verbs ending in 'e' - don't add another 'e'
+        if base_word_lower.endswith('e'):
+            # For verbs ending in 'e', remove the redundant 'e' inflection
+            danish_inflections = [infl for infl in danish_inflections if infl != base_word_lower + 'e']
+        
+        for sentence_data in sentences:
+            if isinstance(sentence_data, dict) and sentence_data.get('danish'):
+                danish_sentence = sentence_data['danish'].lower()
+                
+                # Check each possible inflection
+                for inflected_form in danish_inflections:
+                    pattern = r'\b' + re.escape(inflected_form) + r'\b'
+                    if re.search(pattern, danish_sentence):
+                        # Found an inflected form - extract the actual form from the sentence
+                        words = danish_sentence.split()
+                        for word in words:
+                            # Clean punctuation and check if it matches our inflected form
+                            clean_word = re.sub(r'[.,!?;:"]', '', word.lower())
+                            if clean_word == inflected_form:
+                                # Return the original case version from the sentence
+                                original_word = re.sub(r'[.,!?;:"]', '', word)
+                                return original_word
+        
+        return None
+    
+    def _retry_with_inflected_forms(self, client, base_word):
+        """Retry with common Danish inflected forms when base form doesn't work."""
+        base_word_lower = base_word.lower()
+        
+        # Try common Danish inflections, but be smart about verbs ending in 'e'
+        inflections_to_try = [
+            base_word_lower + 'en',    # definite form (-en)
+            base_word_lower + 'et',    # definite form (-et)
+            base_word_lower + 'erne',  # definite plural (-erne)
+            base_word_lower + 'ne',    # definite plural (-ne)
+            base_word_lower + 'er',    # plural/present tense (-er)
+        ]
+        
+        # Special handling for verbs ending in 'e' - don't add another 'e'
+        if not base_word_lower.endswith('e'):
+            inflections_to_try.append(base_word_lower + 'e')  # plural/imperative (-e)
+        
+        for inflected_form in inflections_to_try:
+            self.update_signal.emit(f"Trying inflected form: '{inflected_form}'")
+            
+            retry_prompt = f"""Create exactly 2 Danish sentences using the word "{inflected_form}".
+
+The word to use is: "{inflected_form}"
+
+REQUIREMENTS:
+- Each sentence MUST contain "{inflected_form}" EXACTLY as written
+- Do NOT change this word to any other form
+- Return the word field as "{inflected_form}"
+- Provide English translation as single base word (infinitive for verbs, singular for nouns)
+
+Return ONLY this JSON format:
+{{
+    "word": "{inflected_form}",
+    "english_translation": "baseword",
+    "example_sentences": [
+        {{
+            "danish": "First sentence containing {inflected_form}",
+            "english": "English translation"
+        }},
+        {{
+            "danish": "Second sentence containing {inflected_form}",
+            "english": "English translation"  
+        }}
+    ]
+}}"""
+
+            try:
+                response = client.chat.completions.create(
+                    model=AppConfig.OPENAI_MODEL,
+                    messages=[
+                        {"role": "system", "content": "You are a Danish language teacher. Use the EXACT word provided. Return ONLY valid JSON."},
+                        {"role": "user", "content": retry_prompt}
+                    ],
+                    max_completion_tokens=AppConfig.OPENAI_MAX_TOKENS
+                )
+                
+                json_content = response.choices[0].message.content.strip()
+                result = self._parse_response(json_content)
+                
+                if result:
+                    # Validate that sentences contain the inflected form
+                    validated_sentences = self._validate_sentences_contain_word(result.get('example_sentences', []), inflected_form)
+                    if len(validated_sentences) >= 2:
+                        result['example_sentences'] = validated_sentences
+                        result['inflected_form_used'] = True
+                        result['base_word'] = base_word
+                        
+                        # Clean up the English translation - remove any extra text added by the prompt
+                        if result.get('english_translation'):
+                            result['english_translation'] = self._clean_english_translation(result['english_translation'])
+                        
+                        self.update_signal.emit(f"Successfully created sentences with inflected form '{inflected_form}'")
+                        return result
+                
+            except Exception as e:
+                self.update_signal.emit(f"Failed to try inflected form '{inflected_form}': {str(e)}")
+                continue
+        
+        return None
+
+    def _retry_with_word_emphasis(self, client, word):
+        """Retry with extra emphasis on using the exact word when AI returned wrong word."""
+        retry_prompt = f"""CRITICAL: You MUST use the EXACT word "{word}" - nothing else!
+
+The word is: "{word}"
+
+You previously returned a different word, but I need sentences with EXACTLY "{word}".
+
+Create exactly 2 Danish sentences that contain the literal word "{word}" as written.
+
+REQUIREMENTS:
+- Each sentence MUST contain "{word}" EXACTLY as written
+- Do NOT change the word to any other form
+- Do NOT use synonyms or similar words
+- The word "{word}" must appear exactly as provided
+- Return the word field as "{word}" (exact match)
+
+Return ONLY this JSON format:
+{{
+    "word": "{word}",
+    "english_translation": "baseword",
+    "example_sentences": [
+        {{
+            "danish": "First sentence containing {word}",
+            "english": "English translation"
+        }},
+        {{
+            "danish": "Second sentence containing {word}",
+            "english": "English translation"  
+        }}
+    ]
+}}
+
+MANDATORY: Use "{word}" exactly - no variations, no inflections unless that IS the exact word provided."""
+
+        try:
+            response = client.chat.completions.create(
+                model=AppConfig.OPENAI_MODEL,
+                messages=[
+                    {"role": "system", "content": "You are a Danish language teacher. You MUST use the EXACT word provided - no substitutions, no variations. Return ONLY valid JSON. The word field in your response must match exactly what was requested. English translation must be a single base word without articles or prepositions."},
+                    {"role": "user", "content": retry_prompt}
+                ],
+                max_completion_tokens=AppConfig.OPENAI_MAX_TOKENS
+            )
+            
+            json_content = response.choices[0].message.content.strip()
+            result = self._parse_response(json_content)
+            
+            # Clean the English translation
+            if result and result.get('english_translation'):
+                result['english_translation'] = self._clean_english_translation(result['english_translation'])
+            
+            # Double-check that the returned word matches what we requested
+            if result and result.get('word', '').lower().strip() != word.lower().strip():
+                self.update_signal.emit(f"Retry still returned wrong word: got '{result.get('word', '')}' instead of '{word}'")
+                return None
+                
+            return result
+            
+        except Exception as e:
+            self.update_signal.emit(f"Word emphasis retry failed for '{word}': {str(e)}")
+            return None
+
     def _retry_sentence_generation(self, client, word):
         """Retry sentence generation with a more specific prompt for a single word."""
         retry_prompt = f"""The word is "{word}". Create exactly 2 Danish sentences that contain the EXACT word "{word}".
@@ -441,7 +764,7 @@ Do not use any other form - use "{word}" and only "{word}".
 Return ONLY this JSON format:
 {{
     "word": "{word}",
-    "english_translation": "dictionary form",
+    "english_translation": "baseword",
     "example_sentences": [
         {{
             "danish": "First sentence with {word}",
@@ -460,14 +783,20 @@ MANDATORY: The word "{word}" must appear exactly as written in each Danish sente
             response = client.chat.completions.create(
                 model=AppConfig.OPENAI_MODEL,
                 messages=[
-                    {"role": "system", "content": "You are a Danish language teacher. You MUST use the exact word provided. Return ONLY valid JSON."},
+                    {"role": "system", "content": "You are a Danish language teacher. You MUST use the exact word provided. Return ONLY valid JSON. English translation must be a single base word without articles or prepositions."},
                     {"role": "user", "content": retry_prompt}
                 ],
                 max_completion_tokens=AppConfig.OPENAI_MAX_TOKENS
             )
             
             json_content = response.choices[0].message.content.strip()
-            return self._parse_response(json_content)
+            result = self._parse_response(json_content)
+            
+            # Clean the English translation
+            if result and result.get('english_translation'):
+                result['english_translation'] = self._clean_english_translation(result['english_translation'])
+            
+            return result
             
         except Exception as e:
             self.update_signal.emit(f"Retry failed for '{word}': {str(e)}")

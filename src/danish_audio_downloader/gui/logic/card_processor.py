@@ -311,30 +311,84 @@ class CardProcessor:
 
     def _remove_word_from_sentence(self, sentence, word_to_remove, use_blank=True):
         """Remove word from sentence and optionally replace with blank. 
-        Simplified version since we now validate that sentences contain the exact word."""
+        Enhanced version with better pattern matching to handle Danish inflections."""
         import re
+        import unicodedata
         
-        # Try exact match first (most common case now that we validate)
-        patterns = [
-            r'\b' + re.escape(word_to_remove) + r'\b',  # exact match
-            r'\b' + re.escape(word_to_remove.capitalize()) + r'\b',  # capitalized
+        # Normalize both strings to handle Unicode issues
+        sentence_normalized = unicodedata.normalize('NFC', sentence)
+        word_normalized = unicodedata.normalize('NFC', word_to_remove.lower())
+        
+        # For Danish, we need to handle common inflections and conjugations
+        # Try to find the word with common Danish endings
+        common_inflections = [
+            '',           # base form
+            'en',         # definite article (substantives)
+            'et',         # definite article (neuter)
+            'erne',       # definite plural
+            'ne',         # definite plural (some words)
+            'e',          # adjective/verb ending
+            'er',         # verb present/plural nouns
+            'ed',         # past participle
+            't',          # neuter/past tense
+            'ede',        # past tense
+            'te',         # past tense
+            'tes',        # passive
+            'ede',        # past tense
+            's',          # genitive/passive
         ]
         
-        # Try each pattern
-        result_sentence = sentence
-        for pattern in patterns:
-            if re.search(pattern, result_sentence, flags=re.IGNORECASE):
-                if use_blank:
-                    result_sentence = re.sub(pattern, '___', result_sentence, flags=re.IGNORECASE)
-                else:
-                    result_sentence = re.sub(pattern, '', result_sentence, flags=re.IGNORECASE)
+        result_sentence = sentence_normalized
+        replacement = '___' if use_blank else ''
+        word_found = False
+        
+        # Try exact word boundary matches first (including inflected forms)
+        for ending in common_inflections:
+            inflected_word = word_normalized + ending
+            
+            # Try multiple case variations
+            patterns = [
+                r'\b' + re.escape(inflected_word) + r'\b',                    # lowercase
+                r'\b' + re.escape(inflected_word.capitalize()) + r'\b',       # capitalized
+                r'\b' + re.escape(inflected_word.upper()) + r'\b',            # uppercase
+            ]
+            
+            for pattern in patterns:
+                if re.search(pattern, result_sentence, re.IGNORECASE):
+                    result_sentence = re.sub(pattern, replacement, result_sentence, count=1, flags=re.IGNORECASE)
+                    word_found = True
+                    break
+            
+            if word_found:
                 break
-        else:
-            # If no exact match found, log a warning and use the sentence as-is
-            if use_blank:
-                # For fill-in-the-blank, we need to indicate the issue
-                result_sentence = f"[Word '{word_to_remove}' not found] {sentence}"
-            # For no-blank version, just remove nothing and continue
+        
+        # If still not found, try partial matching for complex cases
+        if not word_found:
+            # Look for the base word as part of a larger word
+            partial_patterns = [
+                r'\b' + re.escape(word_normalized) + r'\w*\b',     # word + any endings
+                r'(?i)\b' + re.escape(word_normalized) + r'\w*\b', # case insensitive + any endings
+            ]
+            
+            for pattern in partial_patterns:
+                match = re.search(pattern, result_sentence)
+                if match:
+                    matched_word = match.group(0)
+                    result_sentence = result_sentence.replace(matched_word, replacement, 1)
+                    word_found = True
+                    break
+        
+        # Final fallback if still not found
+        if not word_found and use_blank:
+            # Instead of the prominent error message, try a gentler approach
+            # Check if word appears anywhere in sentence (even partially)
+            if word_normalized in sentence_normalized.lower():
+                # Word is there but our patterns didn't catch it
+                # Add a discrete placeholder
+                result_sentence = f"___ {sentence_normalized.strip()}"
+            else:
+                # Word genuinely not found - use a subtle indicator
+                result_sentence = f"___ [{word_normalized}?] {sentence_normalized.strip()}"
         
         if not use_blank:
             # Clean up extra spaces and punctuation

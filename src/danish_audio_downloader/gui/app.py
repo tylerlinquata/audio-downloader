@@ -31,7 +31,7 @@ class DanishAudioApp(QMainWindow):
         self.image_worker = None
         
         # Initialize processing state
-        self.pending_sentence_generation = {}
+        self.pending_audio_download = {}
         self.final_sentence_results = ""
         self.structured_word_data = []  # Store structured data from sentence worker
         self.ordnet_dictionary_data = {}  # Store dictionary data from Ordnet
@@ -142,29 +142,85 @@ class DanishAudioApp(QMainWindow):
         for word in words:
             self.main_tab.log_message(f"  - {word}")
         
-        # Start with audio download first
-        self._start_audio_download(words, output_dir, anki_folder, openai_api_key, forvo_api_key, settings.get('cefr_level', 'B1'))
+        # Start with sentence generation first to determine final word forms
+        self._start_sentence_generation(words, output_dir, anki_folder, openai_api_key, forvo_api_key, settings.get('cefr_level', 'B1'))
     
-    def _start_audio_download(self, words, output_dir, anki_folder, openai_api_key, forvo_api_key, cefr_level):
-        """Start the audio download phase."""
-        self.main_tab.log_message("\n=== Phase 1: Downloading Audio Files from Forvo ===")
+    def _start_sentence_generation(self, words, output_dir, anki_folder, openai_api_key, forvo_api_key, cefr_level):
+        """Start the sentence generation phase."""
+        self.main_tab.log_message("\n=== Phase 1: Generating Example Sentences ===")
         
-        # Store the sentence generation parameters for later
-        self.pending_sentence_generation = {
-            'words': words,
-            'api_key': openai_api_key,
-            'cefr_level': cefr_level
+        # Store the audio download parameters for later
+        self.pending_audio_download = {
+            'output_dir': output_dir,
+            'anki_folder': anki_folder,
+            'forvo_api_key': forvo_api_key
         }
         
-        # Create and start the audio worker thread with Forvo API key
-        self.worker = Worker(words, output_dir, False, anki_folder, forvo_api_key)
+        # Create and start the sentence worker thread
+        self.sentence_worker = SentenceWorker(
+            words, 
+            cefr_level, 
+            openai_api_key,
+            {}  # No ordnet data yet - we'll get it during audio download
+        )
+        self.sentence_worker.update_signal.connect(self.main_tab.log_message)
+        self.sentence_worker.progress_signal.connect(self.main_tab.update_sentence_progress)
+        self.sentence_worker.finished_signal.connect(self._sentence_generation_finished_start_audio)
+        self.sentence_worker.error_signal.connect(self._sentence_generation_error)
+        self.sentence_worker.start()
+
+    def _sentence_generation_finished_start_audio(self, word_data_list, word_translations):
+        """Handle completion of sentence generation and start audio download."""
+        try:
+            self.main_tab.log_message("\n=== Sentence Generation Complete ===")
+            self.main_tab.log_message(f"Generated sentences for {len(word_data_list)} words")
+            
+            # Store the structured data temporarily
+            self.structured_word_data = word_data_list
+            self.word_translations = word_translations
+            
+            # Extract the finalized words for audio download
+            finalized_words = []
+            for word_data in word_data_list:
+                # Use 'original_word' as it contains the correct form for audio download
+                audio_word = word_data.get('original_word', word_data.get('word', ''))
+                if audio_word:
+                    finalized_words.append(audio_word)
+                    if word_data.get('inflected_form_used'):
+                        base_word = word_data.get('word', word_data.get('original_word', ''))
+                        self.main_tab.log_message(f"  - Will download audio for '{audio_word}' (inflected form, base: {base_word})")
+                    else:
+                        self.main_tab.log_message(f"  - Will download audio for '{audio_word}'")
+            
+            if not finalized_words:
+                self.main_tab.log_message("⚠️  No words available for audio download")
+                self._start_image_fetching_phase(word_translations)
+                return
+            
+            # Start audio download phase with finalized words
+            self._start_audio_download_phase(finalized_words)
+            
+        except Exception as e:
+            error_msg = f"Error processing sentence generation results: {str(e)}"
+            self.main_tab.log_message(f"ERROR: {error_msg}")
+            QMessageBox.critical(self, "Processing Error", error_msg)
+            self.main_tab.update_button_state("idle")
+
+    def _start_audio_download_phase(self, finalized_words):
+        """Start the audio download phase with finalized word forms."""
+        params = self.pending_audio_download
+        
+        self.main_tab.log_message(f"\n=== Phase 2: Downloading Audio Files for {len(finalized_words)} words ===")
+        
+        # Create and start the audio worker thread with finalized words
+        self.worker = Worker(finalized_words, params['output_dir'], False, params['anki_folder'], params['forvo_api_key'])
         self.worker.update_signal.connect(self.main_tab.log_message)
         self.worker.progress_signal.connect(self.main_tab.update_audio_progress)
         self.worker.finished_signal.connect(self._audio_download_finished)
         self.worker.start()
     
     def _audio_download_finished(self, successful, failed, dictionary_data):
-        """Handle completion of audio download and start sentence generation."""
+        """Handle completion of audio download and start image fetching."""
         self.main_tab.log_message("\n=== Audio Download Complete ===")
         self.main_tab.log_message(f"Successfully downloaded: {len(successful)} audio files from Forvo")
         if failed:
@@ -172,70 +228,69 @@ class DanishAudioApp(QMainWindow):
             for word in failed:
                 self.main_tab.log_message(f"  - {word}")
         
-        # Store dictionary data for later use (from Ordnet dictionary lookups)
+        # Store dictionary data and merge with sentence data
         self.ordnet_dictionary_data = dictionary_data
         
         # Log dictionary data collection
         definitions_found = sum(1 for data in dictionary_data.values() if data.get('ordnet_found'))
         self.main_tab.log_message(f"Collected dictionary data for {definitions_found} words from Ordnet")
         
-        # Start sentence generation phase
-        self._start_sentence_generation_phase()
-    
-    def _start_sentence_generation_phase(self):
-        """Start the sentence generation phase."""
-        self.main_tab.log_message("\n=== Phase 2: Generating Example Sentences ===")
+        # Merge Ordnet dictionary data with the structured sentence data
+        if hasattr(self, 'structured_word_data'):
+            self._merge_ordnet_data_with_sentences()
         
-        params = self.pending_sentence_generation
+        # Now display the final results
+        self._display_final_results()
         
-        # Create and start the sentence worker thread
-        self.sentence_worker = SentenceWorker(
-            params['words'], 
-            params['cefr_level'], 
-            params['api_key'],
-            self.ordnet_dictionary_data  # Pass dictionary data
-        )
-        self.sentence_worker.update_signal.connect(self.main_tab.log_message)
-        self.sentence_worker.progress_signal.connect(self.main_tab.update_sentence_progress)
-        self.sentence_worker.finished_signal.connect(self._sentence_generation_finished)
-        self.sentence_worker.error_signal.connect(self._sentence_generation_error)
-        self.sentence_worker.start()
-    
-    def _sentence_generation_finished(self, word_data_list, word_translations):
-        """Handle completion of sentence generation and start image fetching."""
-        try:
-            self.main_tab.log_message(f"Received data for {len(word_data_list)} words from sentence worker")
-            self._log_memory_usage("after receiving sentence data")
-            
-            # Store the structured data
-            self.structured_word_data = word_data_list
-            
-            # Format for display in the results area
-            formatted_results = self._format_word_data_for_display(word_data_list)
-            self.main_tab.set_results(formatted_results)
-            self.main_tab.log_message("\n=== Sentence Generation Complete ===")
-            self.main_tab.log_message(f"Generated sentences for {len(word_translations)} words")
-            
-            # Store the formatted sentence results for backward compatibility
-            self.final_sentence_results = formatted_results
-            
-            self._log_memory_usage("after formatting sentence data")
-            
-            # Start image fetching phase
-            self._start_image_fetching_phase(word_translations)
-            
-        except Exception as e:
-            error_msg = f"Error processing sentence generation results: {str(e)}"
-            self.main_tab.log_message(f"ERROR: {error_msg}")
-            QMessageBox.critical(self, "Processing Error", error_msg)
+        # Start image fetching phase
+        if hasattr(self, 'word_translations'):
+            self._start_image_fetching_phase(self.word_translations)
+        else:
+            self.main_tab.log_message("⚠️  No word translations available for image fetching")
             self.main_tab.update_button_state("idle")
+
+    def _merge_ordnet_data_with_sentences(self):
+        """Merge Ordnet dictionary data with sentence data."""
+        for word_data in self.structured_word_data:
+            audio_word = word_data.get('original_word', word_data.get('word', ''))
+            if audio_word in self.ordnet_dictionary_data:
+                ordnet_info = self.ordnet_dictionary_data[audio_word]
+                
+                # Merge Ordnet data with existing sentence data
+                if ordnet_info.get('danish_definition') and not word_data.get('danish_definition'):
+                    word_data['danish_definition'] = ordnet_info['danish_definition']
+                if ordnet_info.get('pronunciation') and not word_data.get('pronunciation'):
+                    word_data['pronunciation'] = ordnet_info['pronunciation']
+                if ordnet_info.get('word_type') and not word_data.get('word_type'):
+                    word_data['word_type'] = ordnet_info['word_type']
+                if ordnet_info.get('gender') and not word_data.get('gender'):
+                    word_data['gender'] = ordnet_info['gender']
+                if ordnet_info.get('plural') and not word_data.get('plural'):
+                    word_data['plural'] = ordnet_info['plural']
+                if ordnet_info.get('inflections') and not word_data.get('inflections'):
+                    word_data['inflections'] = ordnet_info['inflections']
+
+    def _display_final_results(self):
+        """Display the final formatted results."""
+        if hasattr(self, 'structured_word_data'):
+            formatted_results = self._format_word_data_for_display(self.structured_word_data)
+            self.main_tab.set_results(formatted_results)
+            # Store for backward compatibility
+            self.final_sentence_results = formatted_results
     
     def _start_image_fetching_phase(self, word_translations):
         """Start the image fetching phase."""
         self.main_tab.log_message("\n=== Phase 3: Fetching Images ===")
         
         # Create and start the image worker thread
-        api_key = self.pending_sentence_generation['api_key']
+        # Get the API key from the sentence worker which was created earlier
+        if hasattr(self.sentence_worker, 'api_key'):
+            api_key = self.sentence_worker.api_key
+        else:
+            self.main_tab.log_message("⚠️  OpenAI API key not available for image fetching")
+            self.main_tab.update_button_state("idle")
+            return
+            
         self.image_worker = ImageWorker(word_translations, api_key)
         self.image_worker.update_signal.connect(self.main_tab.log_message)
         self.image_worker.progress_signal.connect(self.main_tab.update_image_progress)
@@ -305,7 +360,7 @@ class DanishAudioApp(QMainWindow):
                 self._log_memory_usage("after card generation")
                 
                 # Show completion message and redirect to review
-                word_count = len(self.pending_sentence_generation['words'])
+                word_count = len(self.structured_word_data) if self.structured_word_data else 0
                 image_urls = self.card_processor.word_image_urls
                 image_count = len([url for url in image_urls.values() if url]) if image_urls else 0
                 
@@ -497,7 +552,7 @@ class DanishAudioApp(QMainWindow):
         # Clear data
         self.card_processor.set_image_urls({})
         self.final_sentence_results = ""
-        self.pending_sentence_generation = {}
+        self.pending_audio_download = {}
         self.structured_word_data = []
         self.ordnet_dictionary_data = {}
         
