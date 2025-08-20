@@ -161,7 +161,8 @@ class DanishAudioApp(QMainWindow):
             words, 
             cefr_level, 
             openai_api_key,
-            {}  # No ordnet data yet - we'll get it during audio download
+            {},  # No ordnet data yet - we'll get it during audio download
+            self.settings.get('generate_second_sentence', True)  # Pass the setting
         )
         self.sentence_worker.update_signal.connect(self.main_tab.log_message)
         self.sentence_worker.progress_signal.connect(self.main_tab.update_sentence_progress)
@@ -252,9 +253,13 @@ class DanishAudioApp(QMainWindow):
     def _merge_ordnet_data_with_sentences(self):
         """Merge Ordnet dictionary data with sentence data."""
         for word_data in self.structured_word_data:
-            audio_word = word_data.get('original_word', word_data.get('word', ''))
-            if audio_word in self.ordnet_dictionary_data:
-                ordnet_info = self.ordnet_dictionary_data[audio_word]
+            # Use base_word_for_dictionary if available (for inflected forms), otherwise use original_word
+            dictionary_lookup_word = word_data.get('base_word_for_dictionary') 
+            if not dictionary_lookup_word:
+                dictionary_lookup_word = word_data.get('original_word', word_data.get('word', ''))
+            
+            if dictionary_lookup_word in self.ordnet_dictionary_data:
+                ordnet_info = self.ordnet_dictionary_data[dictionary_lookup_word]
                 
                 # Merge Ordnet data with existing sentence data
                 if ordnet_info.get('danish_definition') and not word_data.get('danish_definition'):
@@ -573,12 +578,21 @@ class DanishAudioApp(QMainWindow):
         """Save settings to persistent storage."""
         settings = self.settings_tab.get_settings()
         self.settings_manager.save_settings(settings)
+        self.settings = settings  # Update stored settings
+        
+        # Update card processor setting
+        self.card_processor.set_generate_second_sentence(settings.get('generate_second_sentence', True))
+        
         QMessageBox.information(self, "Settings Saved", "Settings have been saved.")
     
     def load_settings(self):
         """Load settings from persistent storage."""
         settings = self.settings_manager.load_settings()
         self.settings_tab.load_settings(settings)
+        self.settings = settings  # Store settings for use elsewhere
+        
+        # Update card processor setting
+        self.card_processor.set_generate_second_sentence(settings.get('generate_second_sentence', True))
     
     def _log_memory_usage(self, context=""):
         """Log current memory usage and object counts for debugging."""

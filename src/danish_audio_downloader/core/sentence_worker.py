@@ -20,12 +20,13 @@ class SentenceWorker(QThread):
     finished_signal = pyqtSignal(list, dict)  # word_data_list, word_translations
     error_signal = pyqtSignal(str)  # error message
 
-    def __init__(self, words: List[str], cefr_level: str, api_key: str, ordnet_data: Optional[Dict] = None) -> None:
+    def __init__(self, words: List[str], cefr_level: str, api_key: str, ordnet_data: Optional[Dict] = None, generate_second_sentence: bool = True) -> None:
         super().__init__()
         self.words = words
         self.cefr_level = cefr_level
         self.api_key = api_key
         self.ordnet_data = ordnet_data or {}
+        self.generate_second_sentence = generate_second_sentence
         self.abort_flag = False
 
     def run(self) -> None:
@@ -88,6 +89,30 @@ class SentenceWorker(QThread):
         # Create batch prompt for multiple words
         words_json = ', '.join([f'"{word}"' for word in words_batch])
         
+        # Determine number of sentences based on setting
+        num_sentences = 2 if self.generate_second_sentence else 1
+        sentence_text = "2 example sentences" if self.generate_second_sentence else "1 example sentence"
+        
+        # Build example sentences structure for prompt
+        if self.generate_second_sentence:
+            example_sentences = '''[
+                {
+                    "danish": "Danish sentence containing the exact word word1",
+                    "english": "English translation"
+                },
+                {
+                    "danish": "Another Danish sentence containing the exact word word1",
+                    "english": "English translation"
+                }
+            ]'''
+        else:
+            example_sentences = '''[
+                {
+                    "danish": "Danish sentence containing the exact word word1",
+                    "english": "English translation"
+                }
+            ]'''
+        
         prompt = f"""For the Danish words [{words_json}], provide example sentences and English translations.
 
 CRITICAL: You MUST return the EXACT words as provided - do not change, substitute, or modify them in any way.
@@ -98,16 +123,7 @@ Use this EXACT format:
         {{
             "word": "word1",
             "english_translation": "baseword",
-            "example_sentences": [
-                {{
-                    "danish": "Danish sentence containing the exact word word1",
-                    "english": "English translation"
-                }},
-                {{
-                    "danish": "Another Danish sentence containing the exact word word1",
-                    "english": "English translation"
-                }}
-            ]
+            "example_sentences": {example_sentences}
         }}
     ]
 }}
@@ -118,7 +134,7 @@ Requirements:
 - If a word is inflected (like "rejser"), use that exact inflected form in the sentence
 - If a word is a base form (like "rejse"), use that exact base form in the sentence  
 - CEFR level: {self.cefr_level}
-- 2 example sentences per word
+- {sentence_text} per word
 - Focus on creating natural example sentences that properly use the given word forms
 - English translation MUST be the dictionary base form (single word only)
 - For verbs, use the infinitive WITHOUT "to" (e.g., "talk" not "to talk", "eat" not "to eat")
@@ -193,7 +209,8 @@ Requirements:
                             # VALIDATE: Check if sentences actually contain the user's word
                             validated_sentences = self._validate_sentences_contain_word(word_data.get('example_sentences', []), original_word)
                             
-                            if len(validated_sentences) < 2:  # Need at least 2 valid sentences
+                            required_sentences = 2 if self.generate_second_sentence else 1
+                            if len(validated_sentences) < required_sentences:  # Need required number of valid sentences
                                 self.update_signal.emit(f"Word '{original_word}' needs individual retry - insufficient valid sentences")
                                 # For batch processing, we'll mark this word for individual retry later
                                 word_data['needs_retry'] = True
@@ -232,7 +249,8 @@ Requirements:
                         else:
                             retry_result = self._retry_sentence_generation(client, original_word)
                         
-                        if retry_result and len(self._validate_sentences_contain_word(retry_result.get('example_sentences', []), original_word)) >= 2:
+                        required_sentences = 2 if self.generate_second_sentence else 1
+                        if retry_result and len(self._validate_sentences_contain_word(retry_result.get('example_sentences', []), original_word)) >= required_sentences:
                             # Update the word_data with the new sentences
                             word_data['example_sentences'] = retry_result['example_sentences']
                             if retry_result.get('english_translation'):
@@ -251,6 +269,7 @@ Requirements:
                                 # Update the word to use the inflected form consistently
                                 word_data['word'] = inflected_form
                                 word_data['original_word'] = inflected_form  # Use inflected form for audio download
+                                word_data['base_word_for_dictionary'] = original_word  # Keep original word for dictionary lookup
                                 if retry_result:
                                     word_data['example_sentences'] = retry_result['example_sentences']
                                     if retry_result.get('english_translation'):
@@ -272,6 +291,7 @@ Requirements:
                                     inflected_word = inflected_retry_result['word']
                                     word_data['word'] = inflected_word
                                     word_data['original_word'] = inflected_word  # Use inflected form for audio download
+                                    word_data['base_word_for_dictionary'] = original_word  # Keep original word for dictionary lookup
                                     word_data['example_sentences'] = inflected_retry_result['example_sentences']
                                     if inflected_retry_result.get('english_translation'):
                                         # Clean up the English translation
@@ -365,7 +385,9 @@ Requirements:
         word_translations = {}
         
         # Simplified prompt for single word
-        prompt = f"""For the Danish word "{word}", create exactly 2 example sentences and provide English translation.
+        sentence_text = "exactly 2 example sentences" if self.generate_second_sentence else "exactly 1 example sentence"
+        
+        prompt = f"""For the Danish word "{word}", create {sentence_text} and provide English translation.
 
 CRITICAL: Each sentence MUST contain the exact word "{word}" as written.
 
@@ -407,7 +429,8 @@ Return ONLY this JSON:
                 if word_data:
                     # VALIDATE: Check if sentences contain the exact word
                     validated_sentences = self._validate_sentences_contain_word(word_data.get('example_sentences', []), word)
-                    if len(validated_sentences) < 2:
+                    required_sentences = 2 if self.generate_second_sentence else 1
+                    if len(validated_sentences) < required_sentences:
                         # Try to find if an inflected form works
                         self.update_signal.emit(f"Single word processing: checking inflected forms for '{word}'...")
                         inflected_form = self._find_inflected_form_in_sentences(word_data.get('example_sentences', []), word)
@@ -416,8 +439,9 @@ Return ONLY this JSON:
                             self.update_signal.emit(f"Single word processing: found inflected form '{inflected_form}' for '{word}' - using consistently")
                             word_data['word'] = inflected_form
                             word_data['original_word'] = inflected_form  # Use inflected form for audio download
+                            word_data['base_word_for_dictionary'] = word  # Keep original word for dictionary lookup
                             word_data['inflected_form_used'] = True
-                            self._merge_ordnet_data_and_set_defaults(word_data, inflected_form)
+                            self._merge_ordnet_data_and_set_defaults(word_data, word)  # Use original word for dictionary lookup
                             word_data_list.append(word_data)
                             
                             if word_data.get('english_translation'):
@@ -469,9 +493,12 @@ Return ONLY this JSON:
     
     def _merge_ordnet_data_and_set_defaults(self, word_data: Dict, original_word: str) -> None:
         """Merge Ordnet data with word_data and set default values for missing fields."""
+        # Use base_word_for_dictionary if available (for inflected forms), otherwise use original_word
+        dictionary_lookup_word = word_data.get('base_word_for_dictionary', original_word)
+        
         # Merge with Ordnet data if available
-        if original_word in self.ordnet_data:
-            ordnet_info = self.ordnet_data[original_word]
+        if dictionary_lookup_word in self.ordnet_data:
+            ordnet_info = self.ordnet_data[dictionary_lookup_word]
             # Use Ordnet data for definitions and grammar, but keep ChatGPT sentences
             if ordnet_info.get('danish_definition'):
                 word_data['danish_definition'] = ordnet_info['danish_definition']
@@ -631,7 +658,8 @@ Return ONLY this JSON:
         for inflected_form in inflections_to_try:
             self.update_signal.emit(f"Trying inflected form: '{inflected_form}'")
             
-            retry_prompt = f"""Create exactly 2 Danish sentences using the word "{inflected_form}".
+            sentence_text = "exactly 2 Danish sentences" if self.generate_second_sentence else "exactly 1 Danish sentence"
+            retry_prompt = f"""Create {sentence_text} using the word "{inflected_form}".
 
 The word to use is: "{inflected_form}"
 
@@ -673,10 +701,12 @@ Return ONLY this JSON format:
                 if result:
                     # Validate that sentences contain the inflected form
                     validated_sentences = self._validate_sentences_contain_word(result.get('example_sentences', []), inflected_form)
-                    if len(validated_sentences) >= 2:
+                    required_sentences = 2 if self.generate_second_sentence else 1
+                    if len(validated_sentences) >= required_sentences:
                         result['example_sentences'] = validated_sentences
                         result['inflected_form_used'] = True
                         result['base_word'] = base_word
+                        result['base_word_for_dictionary'] = base_word  # Keep base word for dictionary lookup
                         
                         # Clean up the English translation - remove any extra text added by the prompt
                         if result.get('english_translation'):
@@ -693,11 +723,12 @@ Return ONLY this JSON format:
 
     def _retry_with_word_emphasis(self, client, word):
         """Retry with extra emphasis on using the exact word when AI returned wrong word."""
+        sentence_text = "2 Danish sentences" if self.generate_second_sentence else "1 Danish sentence"
         retry_prompt = f"""CRITICAL: You MUST use the EXACT word "{word}" - nothing else!
 
 The word is: "{word}"
 
-You previously returned a different word, but I need sentences with EXACTLY "{word}".
+You previously returned a different word, but I need {sentence_text} with EXACTLY "{word}".
 
 Create exactly 2 Danish sentences that contain the literal word "{word}" as written.
 
@@ -756,7 +787,8 @@ MANDATORY: Use "{word}" exactly - no variations, no inflections unless that IS t
 
     def _retry_sentence_generation(self, client, word):
         """Retry sentence generation with a more specific prompt for a single word."""
-        retry_prompt = f"""The word is "{word}". Create exactly 2 Danish sentences that contain the EXACT word "{word}".
+        sentence_text = "exactly 2 Danish sentences" if self.generate_second_sentence else "exactly 1 Danish sentence"
+        retry_prompt = f"""The word is "{word}". Create {sentence_text} that contain the EXACT word "{word}".
 
 CRITICAL REQUIREMENT: Each sentence MUST contain the literal word "{word}" exactly as written. 
 Do not use any other form - use "{word}" and only "{word}".

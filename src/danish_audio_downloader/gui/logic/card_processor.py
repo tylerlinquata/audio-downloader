@@ -11,6 +11,11 @@ class CardProcessor:
     
     def __init__(self):
         self.word_image_urls = {}
+        self.generate_second_sentence = True  # Default to enabled for backwards compatibility
+    
+    def set_generate_second_sentence(self, generate_second_sentence):
+        """Set whether to generate second sentence cards."""
+        self.generate_second_sentence = generate_second_sentence
     
     def set_image_urls(self, image_urls):
         """Set the image URLs dictionary."""
@@ -97,7 +102,8 @@ class CardProcessor:
                 if isinstance(sentence_data, dict) and sentence_data.get('danish'):
                     sentences.append(sentence_data['danish'])
             
-            if len(sentences) >= 2:  # Need exactly 2 sentences
+            required_sentences = 2 if self.generate_second_sentence else 1
+            if len(sentences) >= required_sentences:  # Need required number of sentences
                 # Generate the card types for this word with available sentences
                 cards = self._generate_anki_cards_from_structured_data(word, sentences, word_data)
                 
@@ -108,7 +114,7 @@ class CardProcessor:
             else:
                 skipped_words += 1
                 if log_callback:
-                    log_callback(f"  Skipping '{original_word}' - insufficient sentences ({len(sentences)} found, need at least 2)")
+                    log_callback(f"  Skipping '{original_word}' - insufficient sentences ({len(sentences)} found, need at least {required_sentences})")
         
         if log_callback:
             log_callback(f"CSV generation summary:")
@@ -139,7 +145,8 @@ class CardProcessor:
         """Generate card types for a word using structured data."""
         cards = []
         
-        if len(sentences) < 2:  # Need at least 2 sentences
+        required_sentences = 2 if self.generate_second_sentence else 1
+        if len(sentences) < required_sentences:  # Need required number of sentences
             return cards
         
         # Get the original user input word for word removal and back column
@@ -182,8 +189,8 @@ class CardProcessor:
             ''                                            # • Lav 2 kort? - empty for card 2
         ])
         
-        # Card Type 3: New sentence with blank (use second sentence if available)
-        if len(sentences) >= 2:
+        # Card Type 3: New sentence with blank (use second sentence if available and setting enabled)
+        if self.generate_second_sentence and len(sentences) >= 2:
             sentence2_with_blank = self._remove_word_from_sentence(sentences[1], original_word, use_blank=True)
             cards.append([
                 sentence2_with_blank,                    # Front (Eksempel med ord fjernet eller blankt)
@@ -194,7 +201,8 @@ class CardProcessor:
                 f'{grammar_details} [sound:{original_word}.mp3]', # - Ekstra info (IPA, køn, bøjning) - Use original word for audio
                 ''                                       # • Lav 2 kort? - empty for card 3
             ])
-        # Note: Now we generate 3 cards using 2 sentences (sentence 1 twice, sentence 2 once)
+        # Note: When second sentence is enabled, we generate 3 cards using 2 sentences (sentence 1 twice, sentence 2 once)
+        # When disabled, we generate 2 cards using 1 sentence (sentence 1 twice)
         
         return cards
 
@@ -219,7 +227,8 @@ class CardProcessor:
                 if isinstance(sentence_data, dict) and sentence_data.get('danish'):
                     sentences.append(sentence_data['danish'])
             
-            if len(sentences) >= 2:  # Need exactly 2 sentences
+            required_sentences = 2 if self.generate_second_sentence else 1
+            if len(sentences) >= required_sentences:  # Need required number of sentences
                 # Generate cards for this word with available sentences
                 word_cards = self._generate_anki_cards_from_structured_data(word, sentences, word_data)
                 

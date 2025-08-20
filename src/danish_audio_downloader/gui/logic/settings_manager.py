@@ -26,5 +26,6 @@ class SettingsManager:
             'anki_dir': self.settings.value("anki_dir", default_anki),
             'openai_api_key': self.settings.value("openai_api_key", ""),
             'forvo_api_key': self.settings.value("forvo_api_key", ""),
-            'cefr_level': self.settings.value("cefr_level", "B1")
+            'cefr_level': self.settings.value("cefr_level", "B1"),
+            'generate_second_sentence': self.settings.value("generate_second_sentence", True, type=bool)
         }

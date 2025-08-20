@@ -3,7 +3,7 @@
 import os
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
                             QLineEdit, QPushButton, QComboBox, QFormLayout,
-                            QFileDialog)
+                            QFileDialog, QCheckBox)
 from PyQt5.QtCore import pyqtSignal
 
 
@@ -66,6 +66,12 @@ class SettingsTab(QWidget):
         self.cefr_combo.setCurrentText("B1")
         processing_layout.addRow("CEFR Level for Sentences:", self.cefr_combo)
         
+        # Generate second sentence checkbox
+        self.generate_second_sentence_checkbox = QCheckBox()
+        self.generate_second_sentence_checkbox.setChecked(True)  # Default to enabled
+        self.generate_second_sentence_checkbox.setToolTip("Generate a second sentence for each word (creates an additional card)")
+        processing_layout.addRow("Generate Second Sentence:", self.generate_second_sentence_checkbox)
+        
         processing_group.setLayout(processing_layout)
         layout.addWidget(processing_group)
         
@@ -122,7 +128,8 @@ class SettingsTab(QWidget):
             'anki_dir': self.anki_dir_input.text(),
             'openai_api_key': self.api_key_input.text(),
             'forvo_api_key': self.forvo_api_key_input.text(),
-            'cefr_level': self.cefr_combo.currentText()
+            'cefr_level': self.cefr_combo.currentText(),
+            'generate_second_sentence': self.generate_second_sentence_checkbox.isChecked()
         }
     
     def load_settings(self, settings_dict):
@@ -141,3 +148,6 @@ class SettingsTab(QWidget):
             
         if 'cefr_level' in settings_dict and settings_dict['cefr_level']:
             self.cefr_combo.setCurrentText(settings_dict['cefr_level'])
+            
+        if 'generate_second_sentence' in settings_dict:
+            self.generate_second_sentence_checkbox.setChecked(settings_dict['generate_second_sentence'])
