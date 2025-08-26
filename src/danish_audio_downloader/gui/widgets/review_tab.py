@@ -2,11 +2,12 @@
 
 import os
 import re
+import gc  # For garbage collection
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
                             QTableWidget, QTableWidgetItem, QLabel, QPushButton,
                             QCheckBox, QHeaderView, QAbstractItemView,
                             QFileDialog, QMessageBox)
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QUrl
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QUrl, QTimer
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 import csv
@@ -77,8 +78,9 @@ class ReviewTab(QWidget):
         self.image_loaders = []
         self.word_to_rows = {}  # Map Danish words to list of row indices
         self.pending_image_loads = []  # Queue for pending image loads
-        self.max_concurrent_loaders = 5  # Limit concurrent image loaders
+        self.max_concurrent_loaders = 3  # Limit concurrent image loaders (reduced for stability)
         self.active_loaders = 0
+        self._columns_manually_resized = False  # Track if user has manually resized columns
         self.setup_ui()
     
     def setup_ui(self):
@@ -117,18 +119,29 @@ class ReviewTab(QWidget):
         ]
         self.card_table.setHorizontalHeaderLabels(headers)
         
-        # Configure table appearance
-        self.card_table.horizontalHeader().setStretchLastSection(False)
-        self.card_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Include checkbox
-        self.card_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Preview: Image
-        self.card_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Preview: English
-        self.card_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)  # Front example
-        self.card_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)  # Front image
-        self.card_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)  # Definition
-        self.card_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)  # Back word
-        self.card_table.horizontalHeader().setSectionResizeMode(7, QHeaderView.Stretch)  # Full sentence
-        self.card_table.horizontalHeader().setSectionResizeMode(8, QHeaderView.Stretch)  # Grammar
-        self.card_table.horizontalHeader().setSectionResizeMode(9, QHeaderView.ResizeToContents)  # Make 2 cards
+        # Configure table appearance with resizable columns
+        header = self.card_table.horizontalHeader()
+        header.setStretchLastSection(True)  # Make last column stretch to fill remaining space
+        
+        # Set initial column widths and make all columns resizable
+        header.setSectionResizeMode(QHeaderView.Interactive)  # Make all columns manually resizable
+        
+        # Connect signal to track manual column resizing
+        header.sectionResized.connect(self._on_section_resized)
+        
+        # Set reasonable initial widths for each column (will be adjusted by resizeEvent)
+        initial_widths = [70, 120, 120, 200, 150, 250, 100, 300, 200, 90]
+        for col, width in enumerate(initial_widths):
+            self.card_table.setColumnWidth(col, width)
+        
+        # Set minimum column widths to prevent columns from becoming too small
+        header.setMinimumSectionSize(50)  # Minimum width for any column
+        
+        # Enable horizontal scrolling when needed
+        self.card_table.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
+        
+        # Enable word wrapping for better text display
+        self.card_table.setWordWrap(True)
         
         self.card_table.setAlternatingRowColors(True)
         self.card_table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -181,8 +194,66 @@ class ReviewTab(QWidget):
         layout.addLayout(button_layout)
         self.setLayout(layout)
     
+    def resizeEvent(self, event):
+        """Handle window resize events to adjust column sizes proportionally."""
+        super().resizeEvent(event)
+        self._adjust_column_sizes()
+    
+    def _adjust_column_sizes(self):
+        """Adjust column sizes based on available width."""
+        try:
+            available_width = self.card_table.viewport().width()
+            if available_width < 100:  # Skip if table not properly sized yet
+                return
+            
+            # Only auto-adjust if columns haven't been manually resized
+            if not hasattr(self, '_columns_manually_resized'):
+                # Define proportional widths (percentages of total width)
+                column_proportions = {
+                    0: 0.05,   # Include checkbox - 5%
+                    1: 0.08,   # Preview: Image - 8%
+                    2: 0.08,   # Preview: English - 8%
+                    3: 0.15,   # Front example - 15%
+                    4: 0.10,   # Front image - 10%
+                    5: 0.20,   # Definition - 20%
+                    6: 0.07,   # Back word - 7%
+                    7: 0.20,   # Full sentence - 20%
+                    8: 0.12,   # Grammar - 12%
+                    9: 0.05    # Make 2 cards - 5%
+                }
+                
+                # Calculate and set new widths
+                for col, proportion in column_proportions.items():
+                    new_width = max(50, int(available_width * proportion))  # Minimum 50px
+                    self.card_table.setColumnWidth(col, new_width)
+                
+        except Exception as e:
+            print(f"Error adjusting column sizes: {e}")
+    
+    def _on_section_resized(self, logicalIndex, oldSize, newSize):
+        """Track when user manually resizes columns."""
+        # Mark that columns have been manually resized
+        self._columns_manually_resized = True
+    
+    def showEvent(self, event):
+        """Handle show events to ensure proper column sizing."""
+        super().showEvent(event)
+        # Delay column adjustment to ensure table is properly rendered
+        if hasattr(self, 'card_table'):
+            QTimer.singleShot(100, self._adjust_column_sizes)
+    
     def populate_cards(self, cards_data):
         """Populate the review table with generated cards."""
+        if not cards_data:
+            print("No cards data provided")
+            return
+            
+        # Limit the number of cards to prevent system overload
+        max_cards = 500  # Reasonable limit for GUI performance
+        if len(cards_data) > max_cards:
+            print(f"WARNING: Large dataset ({len(cards_data)} cards). Limiting to first {max_cards} for performance.")
+            cards_data = cards_data[:max_cards]
+            
         print(f"DEBUG: Starting to populate {len(cards_data)} cards...")
         
         self.generated_cards = cards_data
@@ -211,73 +282,125 @@ class ReviewTab(QWidget):
                 english_word = "Unknown"
                 image_url = None
             
+            # Safely limit string lengths to prevent crashes
+            danish_word = str(danish_word)[:100] if danish_word else "Unknown"
+            english_word = str(english_word)[:100] if english_word else "Unknown"
+            
             # Build mapping of Danish words to row indices
             if danish_word not in self.word_to_rows:
                 self.word_to_rows[danish_word] = []
             self.word_to_rows[danish_word].append(row)
             
             # Include checkbox
-            checkbox = QCheckBox()
-            checkbox.setChecked(True)  # Default to selected
-            checkbox.stateChanged.connect(self._update_card_status)
-            self.card_table.setCellWidget(row, 0, checkbox)
+            try:
+                checkbox = QCheckBox()
+                checkbox.setChecked(True)  # Default to selected
+                checkbox.stateChanged.connect(self._update_card_status)
+                self.card_table.setCellWidget(row, 0, checkbox)
+            except Exception as e:
+                print(f"Error creating checkbox for row {row}: {e}")
+                continue  # Skip this row if checkbox creation fails
             
             # Column 1: Preview Image - Use queued loading system
             if image_url and isinstance(image_url, str) and image_url.strip():
-                image_label = QLabel()
-                image_label.setAlignment(Qt.AlignCenter)
-                image_label.setText("🖼️ Queued")
-                image_label.setToolTip(f"Image URL: {image_url}")
-                image_label.setStyleSheet("QLabel { padding: 5px; }")
-                image_label.setMinimumSize(90, 70)
-                image_label.setMaximumSize(90, 70)
-                self.card_table.setCellWidget(row, 1, image_label)
-                
-                # Add to pending loads queue
-                self.pending_image_loads.append((row, 1, image_url))
+                try:
+                    image_label = QLabel()
+                    image_label.setAlignment(Qt.AlignCenter)
+                    image_label.setText("Queued")
+                    image_label.setToolTip(f"Image URL: {image_url}")
+                    image_label.setStyleSheet("QLabel { padding: 5px; background-color: #e3f2fd; }")
+                    image_label.setMinimumSize(90, 70)
+                    image_label.setMaximumSize(90, 70)
+                    self.card_table.setCellWidget(row, 1, image_label)
+                    
+                    # Add to pending loads queue
+                    self.pending_image_loads.append((row, 1, image_url))
+                except Exception as e:
+                    print(f"Error creating image label for row {row}: {e}")
             else:
                 # Show placeholder for no image
-                no_image_label = QLabel("❌ No Image")
-                no_image_label.setToolTip("No image URL available")
-                no_image_label.setAlignment(Qt.AlignCenter)
-                no_image_label.setStyleSheet("QLabel { padding: 5px; }")
-                no_image_label.setMinimumSize(90, 70)
-                no_image_label.setMaximumSize(90, 70)
-                self.card_table.setCellWidget(row, 1, no_image_label)
+                try:
+                    no_image_label = QLabel("No Image")
+                    no_image_label.setToolTip("No image URL available")
+                    no_image_label.setAlignment(Qt.AlignCenter)
+                    no_image_label.setStyleSheet("QLabel { padding: 5px; background-color: #ffebee; }")
+                    no_image_label.setMinimumSize(90, 70)
+                    no_image_label.setMaximumSize(90, 70)
+                    self.card_table.setCellWidget(row, 1, no_image_label)
+                except Exception as e:
+                    print(f"Error creating no-image label for row {row}: {e}")
             
             # Column 2: Preview English Word
-            english_preview = QTableWidgetItem(f"🇬🇧 {english_word}")
-            english_preview.setToolTip(f"Danish: {danish_word} → English: {english_word}")
-            english_preview.setFlags(Qt.ItemIsEnabled)  # Read-only
-            self.card_table.setItem(row, 2, english_preview)
+            try:
+                english_preview = QTableWidgetItem(f"EN: {english_word}")
+                english_preview.setToolTip(f"Danish: {danish_word} → English: {english_word}")
+                english_preview.setFlags(Qt.ItemIsEnabled)  # Read-only
+                self.card_table.setItem(row, 2, english_preview)
+            except Exception as e:
+                print(f"Error creating english preview for row {row}: {e}")
+                # Create fallback item
+                english_preview = QTableWidgetItem(str(english_word)[:50])  # Truncate long text
+                self.card_table.setItem(row, 2, english_preview)
             
             # Card data columns (shifted by +2)
             for col, value in enumerate(card, 3):
-                item = QTableWidgetItem(str(value))
-                item.setFlags(item.flags() | Qt.ItemIsEditable)  # Make cells editable
-                if col in [3, 5, 7, 8]:  # Example, Definition, Full Sentence, Grammar columns
-                    item.setToolTip(str(value))
-                self.card_table.setItem(row, col, item)
+                try:
+                    # Safely convert value to string and limit length to prevent crashes
+                    safe_value = str(value)[:1000] if value is not None else ""
+                    item = QTableWidgetItem(safe_value)
+                    item.setFlags(item.flags() | Qt.ItemIsEditable)  # Make cells editable
+                    if col in [3, 5, 7, 8]:  # Example, Definition, Full Sentence, Grammar columns
+                        item.setToolTip(safe_value[:500])  # Limit tooltip length
+                    self.card_table.setItem(row, col, item)
+                except Exception as e:
+                    print(f"Error creating table item for row {row}, col {col}: {e}")
+                    # Create minimal fallback item
+                    fallback_item = QTableWidgetItem("Error")
+                    self.card_table.setItem(row, col, fallback_item)
         
         print(f"DEBUG: Finished populating {len(cards_data)} cards. {len(self.pending_image_loads)} images queued for loading.")
         
-        # Start loading images from the queue
-        self._process_image_queue()
+        # Process images in smaller batches to prevent overwhelming the system
+        self._batch_process_images()
         
         # Update status
         self._update_card_status()
+        
+        # Adjust column sizes after populating data
+        QTimer.singleShot(200, self._adjust_column_sizes)
+    
+    def _batch_process_images(self):
+        """Process images in smaller batches to prevent system overload."""
+        # Limit initial batch size for large datasets
+        if len(self.pending_image_loads) > 50:
+            print(f"DEBUG: Large dataset detected ({len(self.pending_image_loads)} images). Processing in batches.")
+            # Process first 10 images immediately, rest will be processed as they complete
+            initial_batch = min(10, len(self.pending_image_loads))
+            for _ in range(initial_batch):
+                if self.pending_image_loads and self.active_loaders < self.max_concurrent_loaders:
+                    row, col, url = self.pending_image_loads.pop(0)
+                    self._start_image_load(row, col, url)
+        else:
+            # For smaller datasets, process normally
+            self._process_image_queue()
     
     def _cleanup_image_loaders(self):
         """Clean up any existing image loaders to prevent resource leaks."""
         try:
+            print(f"DEBUG: Cleaning up {len(self.image_loaders)} image loaders")
             for loader in self.image_loaders:
-                if loader.isRunning():
-                    loader.wait(100)  # Wait up to 100ms for thread to finish
-                if loader.isRunning():
-                    loader.terminate()  # Force terminate if still running
+                try:
+                    if loader.isRunning():
+                        loader.wait(100)  # Wait up to 100ms for thread to finish
+                    if loader.isRunning():
+                        loader.terminate()  # Force terminate if still running
+                    loader.deleteLater()  # Schedule for deletion
+                except Exception as e:
+                    print(f"Error cleaning up individual loader: {e}")
+            
             self.image_loaders.clear()
             self.active_loaders = 0
-            print("DEBUG: Cleaned up image loaders")
+            print("DEBUG: Cleaned up image loaders successfully")
         except Exception as e:
             print(f"Error cleaning up image loaders: {e}")
     
@@ -295,7 +418,8 @@ class ReviewTab(QWidget):
             # Update label to show loading status
             widget = self.card_table.cellWidget(row, col)
             if widget and isinstance(widget, QLabel):
-                widget.setText("🖼️ Loading...")
+                widget.setText("Loading...")
+                widget.setStyleSheet("QLabel { padding: 5px; background-color: #fff3e0; }")
             
             loader = ImageLoader(row, col, url)
             loader.image_loaded.connect(self._on_image_loaded)
@@ -310,7 +434,8 @@ class ReviewTab(QWidget):
             # Mark as failed to load
             widget = self.card_table.cellWidget(row, col)
             if widget and isinstance(widget, QLabel):
-                widget.setText("❌ Failed")
+                widget.setText("Failed")
+                widget.setStyleSheet("QLabel { padding: 5px; background-color: #ffebee; }")
                 widget.setToolTip(f"Failed to load image: {e}")
     
     def _on_loader_finished(self, loader):
@@ -329,12 +454,21 @@ class ReviewTab(QWidget):
     def _on_image_loaded(self, row, col, pixmap):
         """Callback when an image is successfully loaded."""
         try:
+            # Validate row and column bounds
+            if row < 0 or row >= self.card_table.rowCount():
+                print(f"Invalid row {row} for image loading")
+                return
+            if col < 0 or col >= self.card_table.columnCount():
+                print(f"Invalid column {col} for image loading")
+                return
+                
             widget = self.card_table.cellWidget(row, col)
             if widget and isinstance(widget, QLabel):
                 widget.setPixmap(pixmap)
                 widget.setText("")  # Clear the loading text
+                widget.setStyleSheet("QLabel { padding: 5px; }")
         except Exception as e:
-            print(f"Error setting loaded image: {e}")
+            print(f"Error setting loaded image for row {row}, col {col}: {e}")
 
     def _on_table_item_changed(self, item):
         """Handle changes to table items and refresh image preview if image URL changed."""
@@ -398,34 +532,42 @@ class ReviewTab(QWidget):
     
     def _refresh_image_preview(self, row, image_url):
         """Refresh the image preview in column 1 for the given row with a new image URL."""
-        # Extract the actual image URL from the Anki image tag format
-        # Format: <image src="url"> or just the URL
-        actual_url = self._extract_image_url_from_anki_format(image_url)
-        
-        if actual_url and actual_url.strip():
-            # Create new loading label
-            image_label = QLabel()
-            image_label.setAlignment(Qt.AlignCenter)
-            image_label.setText("🖼️ Loading...")
-            image_label.setToolTip(f"Image URL: {actual_url}")
-            image_label.setStyleSheet("QLabel { padding: 5px; }")
-            image_label.setMinimumSize(90, 70)
-            image_label.setMaximumSize(90, 70)
-            self.card_table.setCellWidget(row, 1, image_label)
+        try:
+            # Validate row bounds
+            if row < 0 or row >= self.card_table.rowCount():
+                print(f"Invalid row {row} for image refresh")
+                return
+                
+            # Extract the actual image URL from the Anki image tag format
+            # Format: <image src="url"> or just the URL
+            actual_url = self._extract_image_url_from_anki_format(image_url)
             
-            # Load the new image
-            loader = ImageLoader(row, 1, actual_url)
-            loader.image_loaded.connect(self._on_image_loaded)
-            loader.start()
-            self.image_loaders.append(loader)
-        else:
-            # No valid URL, show "No Image" label
-            no_image_label = QLabel("❌ No Image")
-            no_image_label.setAlignment(Qt.AlignCenter)
-            no_image_label.setStyleSheet("QLabel { padding: 5px; }")
-            no_image_label.setMinimumSize(90, 70)
-            no_image_label.setMaximumSize(90, 70)
-            self.card_table.setCellWidget(row, 1, no_image_label)
+            if actual_url and actual_url.strip():
+                # Create new loading label
+                image_label = QLabel()
+                image_label.setAlignment(Qt.AlignCenter)
+                image_label.setText("Loading...")
+                image_label.setToolTip(f"Image URL: {actual_url}")
+                image_label.setStyleSheet("QLabel { padding: 5px; background-color: #fff3e0; }")
+                image_label.setMinimumSize(90, 70)
+                image_label.setMaximumSize(90, 70)
+                self.card_table.setCellWidget(row, 1, image_label)
+                
+                # Load the new image
+                loader = ImageLoader(row, 1, actual_url)
+                loader.image_loaded.connect(self._on_image_loaded)
+                loader.start()
+                self.image_loaders.append(loader)
+            else:
+                # No valid URL, show "No Image" label
+                no_image_label = QLabel("No Image")
+                no_image_label.setAlignment(Qt.AlignCenter)
+                no_image_label.setStyleSheet("QLabel { padding: 5px; background-color: #ffebee; }")
+                no_image_label.setMinimumSize(90, 70)
+                no_image_label.setMaximumSize(90, 70)
+                self.card_table.setCellWidget(row, 1, no_image_label)
+        except Exception as e:
+            print(f"Error refreshing image preview for row {row}: {e}")
     
     def _extract_image_url_from_anki_format(self, image_text):
         """Extract the actual image URL from Anki image format or plain URL."""
@@ -468,15 +610,25 @@ class ReviewTab(QWidget):
     
     def _update_card_status(self):
         """Update the status label showing selected card count."""
-        selected_count = 0
-        total_count = self.card_table.rowCount()
-        
-        for row in range(total_count):
-            checkbox = self.card_table.cellWidget(row, 0)
-            if checkbox and checkbox.isChecked():
-                selected_count += 1
-        
-        self.card_status_label.setText(f"Cards: {selected_count} selected of {total_count} total")
+        try:
+            selected_count = 0
+            total_count = self.card_table.rowCount()
+            
+            for row in range(total_count):
+                try:
+                    checkbox = self.card_table.cellWidget(row, 0)
+                    if checkbox and isinstance(checkbox, QCheckBox) and checkbox.isChecked():
+                        selected_count += 1
+                except Exception as e:
+                    print(f"Error checking checkbox in row {row}: {e}")
+                    # Continue counting, assuming this checkbox is unchecked
+                    pass
+            
+            self.card_status_label.setText(f"Cards: {selected_count} selected of {total_count} total")
+        except Exception as e:
+            print(f"Error updating card status: {e}")
+            # Fallback status text
+            self.card_status_label.setText("Cards: Status update error")
     
     def _select_all_cards(self):
         """Select all cards in the review table."""
@@ -536,14 +688,22 @@ class ReviewTab(QWidget):
     
     def cleanup(self):
         """Stop any running image loaders and clean up resources."""
+        print("DEBUG: Starting cleanup of review tab resources...")
         self._cleanup_image_loaders()
         
         # Clear data
         self.generated_cards = []
         self.word_to_rows = {}
         self.pending_image_loads = []
+        
+        # Clear table widgets properly
+        self.card_table.clearContents()
         self.card_table.setRowCount(0)
         self.card_status_label.setText("No cards loaded")
+        
+        # Force garbage collection to free memory
+        gc.collect()
+        print("DEBUG: Review tab cleanup completed")
     
     def closeEvent(self, event):
         """Handle widget close event to clean up resources."""

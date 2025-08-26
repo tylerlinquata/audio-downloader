@@ -35,6 +35,7 @@ class DanishAudioApp(QMainWindow):
         self.final_sentence_results = ""
         self.structured_word_data = []  # Store structured data from sentence worker
         self.ordnet_dictionary_data = {}  # Store dictionary data from Ordnet
+        self._previous_tab_index = 0  # Track tab changes for cleanup
         
         # Set up the UI
         self.init_ui()
@@ -83,6 +84,19 @@ class DanishAudioApp(QMainWindow):
         # Review tab signals
         self.review_tab.export_cards_requested.connect(self._handle_export_cards)
         self.review_tab.back_to_processing_requested.connect(self._back_to_processing)
+        
+        # Tab change signals for cleanup
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+    
+    def _on_tab_changed(self, index):
+        """Handle tab changes to clean up resources."""
+        try:
+            # If switching away from review tab (index 2), clean up image loaders
+            if hasattr(self, '_previous_tab_index') and self._previous_tab_index == 2 and index != 2:
+                self.review_tab._cleanup_image_loaders()
+            self._previous_tab_index = index
+        except Exception as e:
+            print(f"Error during tab change cleanup: {e}")
     
     def _handle_process_words(self, words):
         """Handle request to process words."""
@@ -384,6 +398,13 @@ class DanishAudioApp(QMainWindow):
                 self._log_memory_usage("before populating review tab")
                 
                 try:
+                    # Add some logging for debugging large datasets
+                    self.main_tab.log_message(f"Preparing to populate review tab with {len(cards_data)} cards...")
+                    
+                    # Clear any existing data in review tab first
+                    self.review_tab.cleanup()
+                    
+                    # Use batched population for large datasets
                     self.review_tab.populate_cards(cards_data)
                     
                     # Enable the review tab and switch to it
@@ -394,6 +415,7 @@ class DanishAudioApp(QMainWindow):
                     self.main_tab.update_button_state("idle")
                     
                     self._log_memory_usage("after populating review tab")
+                    self.main_tab.log_message("Review tab populated successfully.")
                     
                 except Exception as e:
                     error_msg = f"Error populating review tab: {str(e)}"
